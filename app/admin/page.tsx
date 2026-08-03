@@ -35,6 +35,19 @@ export default function AdminPage() {
     }
   }
 
+  async function removeOrder(id: string) {
+    if (!confirm("Supprimer cette commande ?")) return;
+    const res = await fetch(`/api/orders/${id}`, {
+      method: "DELETE",
+      headers: { "x-admin-secret": secret },
+    });
+    if (res.ok) {
+      setOrders((prev) => prev.filter((o) => o.id !== id));
+    } else {
+      alert("Erreur lors de la suppression.");
+    }
+  }
+
   function login() {
     sessionStorage.setItem("admin_secret", secret);
     setUnlocked(true);
@@ -108,7 +121,13 @@ export default function AdminPage() {
           <div>📅 {o.day} · 🕐 {o.time}</div>
           <div style={{ color: "#999", fontSize: "0.85em" }}>{new Date(o.createdAt).toLocaleString("fr-FR")}</div>
           <a href={`tel:${o.phone}`} style={{ marginRight: 12 }}>📞 Appeler</a>
-          <a href={`https://wa.me/${o.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer">💬 WhatsApp</a>
+          <a href={`https://wa.me/${o.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" style={{ marginRight: 12 }}>💬 WhatsApp</a>
+          <button
+            onClick={() => removeOrder(o.id)}
+            style={{ background: "none", border: "none", color: "#e63946", cursor: "pointer", padding: 0, fontSize: "1em" }}
+          >
+            🗑️ Supprimer
+          </button>
         </div>
       ))}
     </div>
