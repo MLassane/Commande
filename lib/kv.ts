@@ -28,12 +28,18 @@ export type Order = {
 };
 
 export async function saveOrder(order: Order) {
-  await redis.lpush("orders", JSON.stringify(order));
+  await redis.hset("orders", { [order.id]: JSON.stringify(order) });
 }
 
-export async function listOrders(limit = 100): Promise<Order[]> {
-  const raw = await redis.lrange<string>("orders", 0, limit - 1);
-  return raw.map((r) => (typeof r === "string" ? JSON.parse(r) : r));
+export async function listOrders(): Promise<Order[]> {
+  const raw = await redis.hgetall<Record<string, string>>("orders");
+  if (!raw) return [];
+  const orders = Object.values(raw).map((r) => (typeof r === "string" ? JSON.parse(r) : r));
+  return orders.sort((a: Order, b: Order) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+export async function deleteOrder(id: string) {
+  await redis.hdel("orders", id);
 }
 
 export async function saveSubscription(sub: unknown) {
