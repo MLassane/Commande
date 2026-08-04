@@ -1,0 +1,12 @@
+export const metadata = {
+  title: "Commande",
+  description: "Page de commande",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="fr">
+      <body style={{ margin: 0, fontFamily: "Arial, sans-serif" }}>{children}</body>
+    </html>
+  );
+}
