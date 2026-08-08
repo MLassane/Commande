@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CountdownTimer from "@/components/CountdownTimer";
 import { getProduct } from "@/lib/products";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,9 @@ export default async function ProduitPage({ params }: { params: { handle: string
             style={{ width: "100%", maxWidth: 320, borderRadius: 20, margin: "20px auto", display: "block", boxShadow: "0 10px 30px rgba(0,0,0,0.2)" }}
           />
         )}
+        <br />
+        <CountdownTimer />
+        <br />
         <div style={{ display: "inline-block", background: "#fff", color: "#6b3fa0", borderRadius: 14, padding: "15px 30px", fontWeight: "bold" }}>
           {product.oldPrice > 0 && (
             <span style={{ textDecoration: "line-through", color: "#999", fontSize: "0.9em", marginRight: 10 }}>

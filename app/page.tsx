@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CountdownTimer from "@/components/CountdownTimer";
 import { PRODUCT } from "@/lib/config";
 
 export default function Home() {
@@ -9,6 +10,9 @@ export default function Home() {
         <h1 style={S.h1}>{PRODUCT.name}</h1>
         <p style={S.tagline}>Le masseur bien-être 3-en-1 pour une détente profonde, à la maison, quand vous voulez</p>
         <img src="/images/produit-1.jpg" alt={PRODUCT.name} style={S.heroImage} />
+        <br />
+        <CountdownTimer />
+        <br />
         <div style={S.priceBox}>
           <span style={S.old}>{PRODUCT.oldPrice.toLocaleString("fr-FR")} {PRODUCT.currency}</span>
           <span style={S.new}>{PRODUCT.price.toLocaleString("fr-FR")} {PRODUCT.currency}</span>

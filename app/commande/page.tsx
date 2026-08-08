@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import CountdownTimer from "@/components/CountdownTimer";
 import { PRODUCT as DEFAULT_PRODUCT, WHATSAPP_NUMBER } from "@/lib/config";
 
 type ActiveProduct = { name: string; price: number; oldPrice: number; currency: string };
@@ -127,6 +128,7 @@ function CommandePage() {
       <div style={styles.banner}>Livraison gratuite</div>
       <div style={styles.card}>
         <h1 style={styles.title}>{PRODUCT.name}</h1>
+        <CountdownTimer />
         <div style={styles.priceRow}>
           <span style={styles.oldPrice}>{PRODUCT.oldPrice.toLocaleString("fr-FR")} {PRODUCT.currency}</span>
           <span style={styles.newPrice}>{PRODUCT.price.toLocaleString("fr-FR")} {PRODUCT.currency}</span>
