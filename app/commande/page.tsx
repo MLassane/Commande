@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import CountdownTimer from "@/components/CountdownTimer";
+import { COUNTRIES, DEFAULT_COUNTRY, Country } from "@/lib/countries";
 import { PRODUCT as DEFAULT_PRODUCT, WHATSAPP_NUMBER } from "@/lib/config";
 
 type ActiveProduct = { name: string; price: number; oldPrice: number; currency: string };
@@ -45,28 +46,53 @@ function CommandePage() {
 
   const [form, setForm] = useState({
     name: "",
-    phone: "",
+    phone: "", // numéro local, sans indicatif
     address: "",
     day: "",
     time: "",
     confirmed: false,
   });
+  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY);
+  const [errors, setErrors] = useState<{ general?: string; phone?: string }>({});
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
+
+  // Détecte le pays du visiteur pour pré-sélectionner le bon indicatif.
+  useEffect(() => {
+    fetch("https://ipapi.co/json/")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const found = COUNTRIES.find((c) => c.code === data?.country_code);
+        if (found) setCountry(found);
+      })
+      .catch(() => {
+        // Si la détection échoue, on garde le pays par défaut (Niger).
+      });
+  }, []);
 
   function update(field: string, value: string | boolean) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
   function isValid() {
+    const newErrors: { general?: string; phone?: string } = {};
+
+    const phoneDigits = form.phone.replace(/[^\d]/g, "");
+    if (phoneDigits.length !== country.digits) {
+      newErrors.phone = `Au ${country.name}, le numéro doit comporter ${country.digits} chiffres (sans l'indicatif).`;
+    }
+
     if (!form.name || !form.phone || !form.address || !form.day || !form.time) {
-      alert("Merci de remplir tous les champs.");
-      return false;
+      newErrors.general = "Merci de remplir tous les champs.";
+    } else if (!form.confirmed) {
+      newErrors.general = "Merci de cocher la case de confirmation.";
     }
-    if (!form.confirmed) {
-      alert("Merci de cocher la case de confirmation.");
-      return false;
-    }
-    return true;
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }
+
+  function fullPhone() {
+    return `${country.dial} ${form.phone}`;
   }
 
   async function submit(e: React.FormEvent) {
@@ -77,7 +103,7 @@ function CommandePage() {
       const res = await fetch("/api/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, product: PRODUCT.name, price: PRODUCT.price }),
+        body: JSON.stringify({ ...form, phone: fullPhone(), product: PRODUCT.name, price: PRODUCT.price }),
       });
       if (!res.ok) throw new Error("failed");
       setStatus("done");
@@ -95,7 +121,7 @@ function CommandePage() {
     fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, product: PRODUCT.name, price: PRODUCT.price }),
+      body: JSON.stringify({ ...form, phone: fullPhone(), product: PRODUCT.name, price: PRODUCT.price }),
     }).catch(() => {});
 
     const message =
@@ -103,7 +129,7 @@ function CommandePage() {
       `🛍️ Produit : ${PRODUCT.name}\n` +
       `💰 Prix : ${PRODUCT.price.toLocaleString("fr-FR")} ${PRODUCT.currency}\n\n` +
       `👤 Nom : ${form.name}\n` +
-      `📞 Téléphone : ${form.phone}\n` +
+      `📞 Téléphone : ${fullPhone()}\n` +
       `📍 Adresse : ${form.address}\n` +
       `📅 Jour de livraison : ${form.day}\n` +
       `🕐 Heure de livraison : ${form.time}`;
@@ -117,7 +143,7 @@ function CommandePage() {
       <div style={styles.page}>
         <div style={{ ...styles.card, textAlign: "center" as const }}>
           <h2 style={{ color: "#2a9d8f" }}>✅ Commande reçue !</h2>
-          <p>Nous vous contacterons très vite au {form.phone} pour confirmer la livraison.</p>
+          <p>Nous vous contacterons très vite au {fullPhone()} pour confirmer la livraison.</p>
         </div>
       </div>
     );
@@ -140,7 +166,26 @@ function CommandePage() {
           </Field>
 
           <Field label="Téléphone" required>
-            <input style={styles.input} value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="Téléphone" type="tel" />
+            <div style={{ display: "flex", gap: 8 }}>
+              <select
+                style={{ ...styles.input, width: 110, flexShrink: 0 }}
+                value={country.code}
+                onChange={(e) => setCountry(COUNTRIES.find((c) => c.code === e.target.value) || DEFAULT_COUNTRY)}
+              >
+                {COUNTRIES.map((c) => (
+                  <option key={c.code} value={c.code}>{c.dial} {c.name}</option>
+                ))}
+              </select>
+              <input
+                style={styles.input}
+                value={form.phone}
+                onChange={(e) => update("phone", e.target.value.replace(/[^\d]/g, ""))}
+                placeholder={`${country.digits} chiffres`}
+                type="tel"
+                inputMode="numeric"
+              />
+            </div>
+            {errors.phone && <p style={styles.fieldError}>{errors.phone}</p>}
           </Field>
 
           <Field label="Adresse de livraison" required>
@@ -168,6 +213,8 @@ function CommandePage() {
           <p style={styles.warning}>
             Respectez-vous et validez votre commande uniquement si vous êtes prêt(e) à être livré(e).
           </p>
+
+          {errors.general && <p style={styles.generalError}>⚠️ {errors.general}</p>}
 
           <button type="submit" style={styles.cta} disabled={status === "loading"}>
             {status === "loading" ? "Envoi..." : `Je Commande - ${PRODUCT.currency}${PRODUCT.price.toLocaleString("fr-FR")}`}
@@ -208,6 +255,8 @@ const styles: { [k: string]: React.CSSProperties } = {
   input: { width: "100%", boxSizing: "border-box", padding: "14px 16px", borderRadius: 10, border: "1px solid #ddd", fontSize: "1em" },
   checkboxRow: { display: "flex", alignItems: "flex-start", gap: 10, margin: "10px 0 16px", fontSize: "1.05em" },
   warning: { color: "#e63946", fontStyle: "italic", fontSize: "0.95em" },
+  fieldError: { color: "#e63946", fontSize: "0.9em", marginTop: 6 },
+  generalError: { background: "#fff3f3", border: "1px solid #e63946", color: "#e63946", borderRadius: 8, padding: "10px 14px", fontSize: "0.95em", marginBottom: 12 },
   cta: { display: "block", width: "100%", background: "#f4841c", color: "#fff", border: "none", padding: "18px", borderRadius: 10, fontSize: "1.15em", fontWeight: "bold", cursor: "pointer" },
   whatsappCta: { display: "block", width: "100%", background: "#25D366", color: "#fff", border: "none", padding: "18px", borderRadius: 10, fontSize: "1.15em", fontWeight: "bold", cursor: "pointer", marginTop: 12 },
 };
