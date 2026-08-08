@@ -13,6 +13,7 @@ export async function sendOrderEmail(order: Order) {
   const html = `
     <h2>🛒 Nouvelle commande !</h2>
     <p><b>Produit :</b> ${order.product}</p>
+    <p><b>Quantité :</b> ${order.qty || 1}</p>
     <p><b>Prix :</b> ${order.price.toLocaleString("fr-FR")} FCFA</p>
     <hr />
     <p><b>Nom :</b> ${order.name}</p>

@@ -4,6 +4,7 @@ export type Order = {
   id: string;
   product: string;
   price: number;
+  qty?: number;
   name: string;
   phone: string;
   address: string;

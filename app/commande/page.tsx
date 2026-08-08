@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import CountdownTimer from "@/components/CountdownTimer";
 import { COUNTRIES, DEFAULT_COUNTRY, Country } from "@/lib/countries";
-import { PRODUCT as DEFAULT_PRODUCT, WHATSAPP_NUMBER } from "@/lib/config";
+import { PRODUCT as DEFAULT_PRODUCT, OFFERS, WHATSAPP_NUMBER } from "@/lib/config";
 
 type ActiveProduct = { name: string; price: number; oldPrice: number; currency: string };
 
@@ -43,6 +43,15 @@ function CommandePage() {
   }, [handle]);
 
   const PRODUCT = product;
+
+  // Les offres par quantité ne s'appliquent qu'au produit par défaut
+  // (celui sans ?produit= dans l'URL, ex: page d'accueil Massage Stick).
+  const hasOffers = !handle;
+  const [offerIndex, setOfferIndex] = useState(0);
+  const selectedOffer = OFFERS[offerIndex];
+  const activeName = hasOffers ? `${PRODUCT.name} x${selectedOffer.qty}` : PRODUCT.name;
+  const activePrice = hasOffers ? selectedOffer.price : PRODUCT.price;
+  const activeQty = hasOffers ? selectedOffer.qty : 1;
 
   const [form, setForm] = useState({
     name: "",
@@ -103,7 +112,7 @@ function CommandePage() {
       const res = await fetch("/api/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, phone: fullPhone(), product: PRODUCT.name, price: PRODUCT.price }),
+        body: JSON.stringify({ ...form, phone: fullPhone(), product: activeName, price: activePrice, qty: activeQty }),
       });
       if (!res.ok) throw new Error("failed");
       setStatus("done");
@@ -121,13 +130,13 @@ function CommandePage() {
     fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, phone: fullPhone(), product: PRODUCT.name, price: PRODUCT.price }),
+      body: JSON.stringify({ ...form, phone: fullPhone(), product: activeName, price: activePrice, qty: activeQty }),
     }).catch(() => {});
 
     const message =
       `Bonjour, je souhaite commander :\n\n` +
-      `🛍️ Produit : ${PRODUCT.name}\n` +
-      `💰 Prix : ${PRODUCT.price.toLocaleString("fr-FR")} ${PRODUCT.currency}\n\n` +
+      `🛍️ Produit : ${activeName}\n` +
+      `💰 Prix : ${activePrice.toLocaleString("fr-FR")} ${PRODUCT.currency}\n\n` +
       `👤 Nom : ${form.name}\n` +
       `📞 Téléphone : ${fullPhone()}\n` +
       `📍 Adresse : ${form.address}\n` +
@@ -157,8 +166,42 @@ function CommandePage() {
         <CountdownTimer />
         <div style={styles.priceRow}>
           <span style={styles.oldPrice}>{PRODUCT.oldPrice.toLocaleString("fr-FR")} {PRODUCT.currency}</span>
-          <span style={styles.newPrice}>{PRODUCT.price.toLocaleString("fr-FR")} {PRODUCT.currency}</span>
+          <span style={styles.newPrice}>{activePrice.toLocaleString("fr-FR")} {PRODUCT.currency}</span>
         </div>
+
+        {hasOffers && (
+          <div style={{ marginBottom: 24 }}>
+            {OFFERS.map((offer, i) => (
+              <label
+                key={offer.qty}
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  border: i === offerIndex ? "2px solid #f4841c" : "1.5px solid #ddd",
+                  background: i === offerIndex ? "#fff7f0" : "#fff",
+                  borderRadius: 10,
+                  padding: "12px 16px",
+                  marginBottom: 10,
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input type="radio" checked={i === offerIndex} onChange={() => setOfferIndex(i)} />
+                  <span>
+                    {offer.label}
+                    {i === OFFERS.length - 1 && (
+                      <span style={{ marginLeft: 8, background: "#2a9d8f", color: "#fff", fontSize: "0.75em", padding: "2px 8px", borderRadius: 20 }}>
+                        Meilleure offre
+                      </span>
+                    )}
+                  </span>
+                </span>
+                <b>{offer.price.toLocaleString("fr-FR")} FCFA</b>
+              </label>
+            ))}
+          </div>
+        )}
 
         <form onSubmit={submit}>
           <Field label="Nom et prénom" required>
@@ -217,7 +260,7 @@ function CommandePage() {
           {errors.general && <p style={styles.generalError}>⚠️ {errors.general}</p>}
 
           <button type="submit" style={styles.cta} disabled={status === "loading"}>
-            {status === "loading" ? "Envoi..." : `Je Commande - ${PRODUCT.currency}${PRODUCT.price.toLocaleString("fr-FR")}`}
+            {status === "loading" ? "Envoi..." : `Je Commande - ${PRODUCT.currency}${activePrice.toLocaleString("fr-FR")}`}
           </button>
 
           <button type="button" onClick={orderViaWhatsApp} style={styles.whatsappCta}>

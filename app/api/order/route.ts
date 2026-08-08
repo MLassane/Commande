@@ -5,7 +5,7 @@ import { sendOrderEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { name, phone, address, day, time, product, price } = body;
+  const { name, phone, address, day, time, product, price, qty } = body;
 
   if (!name || !phone || !address || !day || !time) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
     product: product || "Produit",
     price: price || 0,
+    qty: qty || 1,
     name,
     phone,
     address,

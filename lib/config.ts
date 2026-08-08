@@ -10,6 +10,13 @@ export const PRODUCT = {
   currency: "FCFA",
 };
 
+// Offres groupées (quantité). La 1ère est sélectionnée par défaut.
+export const OFFERS = [
+  { qty: 1, price: 9900, label: "1 Massage Stick" },
+  { qty: 2, price: 14900, label: "2 Massage Stick" },
+  { qty: 3, price: 29900, label: "3 Massage Stick" },
+];
+
 // Numéro WhatsApp Business qui recevra les commandes (format international,
 // sans le "+" ni espaces).
 export const WHATSAPP_NUMBER = "22785377631";
