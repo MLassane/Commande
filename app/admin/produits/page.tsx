@@ -3,7 +3,21 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseCSV } from "@/lib/csv";
-import type { Product } from "@/lib/products";
+import type { Product, Offer } from "@/lib/products";
+
+// Décode une colonne "offres" au format "1:9900;2:14900;3:29900"
+// (quantité:prix, séparés par ";") en tableau d'offres.
+function parseOffers(raw: string): Offer[] | undefined {
+  if (!raw.trim()) return undefined;
+  const offers = raw
+    .split(";")
+    .map((part) => {
+      const [qty, price] = part.split(":").map((v) => parseInt(v.trim(), 10));
+      return { qty, price };
+    })
+    .filter((o) => o.qty > 0 && o.price > 0);
+  return offers.length > 0 ? offers : undefined;
+}
 
 export default function ProduitsAdminPage() {
   const [secret, setSecret] = useState("");
@@ -56,6 +70,7 @@ export default function ProduitsAdminPage() {
               oldPrice: headers.indexOf("variant compare at price"),
               image: headers.indexOf("image src"),
               description: headers.indexOf("body (html)"),
+              offers: headers.indexOf("offres"),
             }
           : {
               handle: headers.indexOf("handle"),
@@ -64,6 +79,7 @@ export default function ProduitsAdminPage() {
               oldPrice: headers.indexOf("prix_barre"),
               image: headers.indexOf("image"),
               description: headers.indexOf("description"),
+              offers: headers.indexOf("offres"),
             };
 
         if (idx.handle === -1 || idx.name === -1 || idx.price === -1) {
@@ -86,6 +102,7 @@ export default function ProduitsAdminPage() {
                 : 0,
             image: idx.image > -1 ? (r[idx.image] || "").trim() : "",
             description: idx.description > -1 ? r[idx.description] || "" : "",
+            offers: idx.offers > -1 ? parseOffers(r[idx.offers] || "") : undefined,
           }))
           // Sur un export Shopify, chaque produit peut avoir plusieurs lignes
           // (variantes, images supplémentaires) — on garde seulement la
@@ -125,6 +142,46 @@ export default function ProduitsAdminPage() {
       headers: { "x-admin-secret": secret },
     });
     if (res.ok) setExisting((prev) => prev.filter((p) => p.handle !== handle));
+  }
+
+  const [editingHandle, setEditingHandle] = useState<string | null>(null);
+  const [editOffers, setEditOffers] = useState<Offer[]>([]);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "loading" | "error">("idle");
+
+  function startEditOffers(p: Product) {
+    setEditingHandle(p.handle);
+    setEditOffers(p.offers && p.offers.length > 0 ? [...p.offers] : [{ qty: 1, price: p.price }]);
+    setSaveStatus("idle");
+  }
+
+  function updateOfferRow(i: number, field: "qty" | "price", value: string) {
+    setEditOffers((prev) => prev.map((o, idx) => (idx === i ? { ...o, [field]: parseInt(value, 10) || 0 } : o)));
+  }
+
+  function addOfferRow() {
+    setEditOffers((prev) => [...prev, { qty: prev.length + 1, price: 0 }]);
+  }
+
+  function removeOfferRow(i: number) {
+    setEditOffers((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  async function saveOffers(p: Product) {
+    setSaveStatus("loading");
+    const validOffers = editOffers.filter((o) => o.qty > 0 && o.price > 0);
+    const updated: Product = { ...p, offers: validOffers.length > 0 ? validOffers : undefined };
+    try {
+      const res = await fetch("/api/products/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        body: JSON.stringify({ products: [updated] }),
+      });
+      if (!res.ok) throw new Error("failed");
+      setExisting((prev) => prev.map((x) => (x.handle === p.handle ? updated : x)));
+      setEditingHandle(null);
+    } catch {
+      setSaveStatus("error");
+    }
   }
 
   if (!unlocked) {
@@ -192,18 +249,79 @@ export default function ProduitsAdminPage() {
       <h2>Produits déjà en ligne ({existing.length})</h2>
       {existing.length === 0 && <p>Aucun produit importé pour l&apos;instant.</p>}
       {existing.map((p) => (
-        <div key={p.handle} style={{ border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <b>{p.name}</b> — {p.price.toLocaleString("fr-FR")} FCFA
-            <br />
-            <Link href={`/produit/${p.handle}`} style={{ fontSize: "0.85em" }}>/produit/{p.handle} →</Link>
+        <div key={p.handle} style={{ border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <b>{p.name}</b> — {p.price.toLocaleString("fr-FR")} FCFA
+              {p.offers && p.offers.length > 0 && (
+                <span style={{ marginLeft: 8, fontSize: "0.8em", color: "#2a9d8f" }}>
+                  ({p.offers.length} offre{p.offers.length > 1 ? "s" : ""})
+                </span>
+              )}
+              <br />
+              <Link href={`/produit/${p.handle}`} style={{ fontSize: "0.85em" }}>/produit/{p.handle} →</Link>
+            </div>
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <button
+                onClick={() => (editingHandle === p.handle ? setEditingHandle(null) : startEditOffers(p))}
+                style={{ background: "#f4841c", color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: "0.9em" }}
+              >
+                {p.offers && p.offers.length > 0 ? "✏️ Modifier les offres" : "➕ Ajouter des offres"}
+              </button>
+              <button
+                onClick={() => removeProduct(p.handle)}
+                style={{ background: "none", border: "none", color: "#e63946", cursor: "pointer" }}
+              >
+                🗑️
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => removeProduct(p.handle)}
-            style={{ background: "none", border: "none", color: "#e63946", cursor: "pointer" }}
-          >
-            🗑️
-          </button>
+
+          {editingHandle === p.handle && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
+              <p style={{ fontSize: "0.9em", color: "#666", marginBottom: 10 }}>
+                Quantité et prix pour chaque offre (ex: 1 → prix normal, 2 → prix réduit pour 2, etc.)
+              </p>
+              {editOffers.map((o, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <input
+                    type="number"
+                    value={o.qty || ""}
+                    onChange={(e) => updateOfferRow(i, "qty", e.target.value)}
+                    placeholder="Qté"
+                    style={{ width: 70, padding: 8, border: "1px solid #ddd", borderRadius: 6 }}
+                  />
+                  <span>×</span>
+                  <input
+                    type="number"
+                    value={o.price || ""}
+                    onChange={(e) => updateOfferRow(i, "price", e.target.value)}
+                    placeholder="Prix FCFA"
+                    style={{ width: 120, padding: 8, border: "1px solid #ddd", borderRadius: 6 }}
+                  />
+                  <span style={{ fontSize: "0.85em", color: "#666" }}>FCFA</span>
+                  <button onClick={() => removeOfferRow(i)} style={{ background: "none", border: "none", color: "#e63946", cursor: "pointer", marginLeft: "auto" }}>
+                    ✕
+                  </button>
+                </div>
+              ))}
+              <button
+                onClick={addOfferRow}
+                style={{ background: "none", border: "1px dashed #999", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: "0.85em", marginBottom: 12 }}
+              >
+                + Ajouter une ligne
+              </button>
+              <br />
+              <button
+                onClick={() => saveOffers(p)}
+                disabled={saveStatus === "loading"}
+                style={{ background: "#2a9d8f", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}
+              >
+                {saveStatus === "loading" ? "Enregistrement..." : "✅ Enregistrer"}
+              </button>
+              {saveStatus === "error" && <p style={{ color: "#e63946" }}>Erreur lors de l&apos;enregistrement.</p>}
+            </div>
+          )}
         </div>
       ))}
     </div>
