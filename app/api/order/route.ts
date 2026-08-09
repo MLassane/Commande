@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import webpush from "web-push";
-import { saveOrder, listSubscriptions, Order } from "@/lib/kv";
+import { saveOrder, listSubscriptions, Order, nextOrderNumber } from "@/lib/kv";
 import { sendOrderEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
@@ -11,8 +11,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "missing_fields" }, { status: 400 });
   }
 
+  let orderNumber = "";
+  try {
+    orderNumber = await nextOrderNumber();
+  } catch (err) {
+    console.error("Erreur nextOrderNumber:", err);
+  }
+
   const order: Order = {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    orderNumber: orderNumber || undefined,
     product: product || "Produit",
     price: price || 0,
     qty: qty || 1,
