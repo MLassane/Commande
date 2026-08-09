@@ -11,7 +11,7 @@ export async function sendOrderEmail(order: Order) {
   }
 
   const html = `
-    <h2>🛒 Nouvelle commande !</h2>
+    <h2>🛒 Nouvelle commande ${order.orderNumber ? `— ${order.orderNumber}` : ""} !</h2>
     <p><b>Produit :</b> ${order.product}</p>
     <p><b>Quantité :</b> ${order.qty || 1}</p>
     <p><b>Prix :</b> ${order.price.toLocaleString("fr-FR")} FCFA</p>
@@ -34,7 +34,7 @@ export async function sendOrderEmail(order: Order) {
       body: JSON.stringify({
         from: "Commande Store <onboarding@resend.dev>",
         to: [ADMIN_EMAIL],
-        subject: `🛒 Nouvelle commande — ${order.name}`,
+        subject: `🛒 Nouvelle commande ${order.orderNumber || ""} — ${order.name}`,
         html,
       }),
     });
