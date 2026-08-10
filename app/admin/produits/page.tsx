@@ -148,9 +148,65 @@ export default function ProduitsAdminPage() {
   const [editOffers, setEditOffers] = useState<Offer[]>([]);
   const [saveStatus, setSaveStatus] = useState<"idle" | "loading" | "error">("idle");
 
+  const [editingProductHandle, setEditingProductHandle] = useState<string | null>(null);
+  const [editProductForm, setEditProductForm] = useState<Product | null>(null);
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  function toggleSelected(handle: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(handle)) next.delete(handle);
+      else next.add(handle);
+      return next;
+    });
+  }
+
+  async function bulkDelete() {
+    if (selected.size === 0) return;
+    if (!confirm(`Supprimer ${selected.size} produit(s) sélectionné(s) ?`)) return;
+    setBulkDeleting(true);
+    for (const handle of Array.from(selected)) {
+      await fetch(`/api/products/${handle}`, { method: "DELETE", headers: { "x-admin-secret": secret } });
+    }
+    setExisting((prev) => prev.filter((p) => !selected.has(p.handle)));
+    setSelected(new Set());
+    setBulkDeleting(false);
+  }
+
+  function startEditProduct(p: Product) {
+    setEditingProductHandle(p.handle);
+    setEditProductForm({ ...p });
+    setEditingHandle(null);
+    setSaveStatus("idle");
+  }
+
+  function updateEditField(field: keyof Product, value: string) {
+    setEditProductForm((prev) => (prev ? { ...prev, [field]: field === "price" || field === "oldPrice" ? parseInt(value, 10) || 0 : value } : prev));
+  }
+
+  async function saveEditProduct() {
+    if (!editProductForm) return;
+    setSaveStatus("loading");
+    try {
+      const res = await fetch("/api/products/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        body: JSON.stringify({ products: [editProductForm] }),
+      });
+      if (!res.ok) throw new Error("failed");
+      setExisting((prev) => prev.map((x) => (x.handle === editProductForm.handle ? editProductForm : x)));
+      setEditingProductHandle(null);
+    } catch {
+      setSaveStatus("error");
+    }
+  }
+
   function startEditOffers(p: Product) {
     setEditingHandle(p.handle);
     setEditOffers(p.offers && p.offers.length > 0 ? [...p.offers] : [{ qty: 1, price: p.price }]);
+    setEditingProductHandle(null);
     setSaveStatus("idle");
   }
 
@@ -247,26 +303,54 @@ export default function ProduitsAdminPage() {
       )}
 
       <h2>Produits déjà en ligne ({existing.length})</h2>
+
+      {selected.size > 0 && (
+        <div style={{ background: "#fff3f3", border: "1px solid #e63946", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{selected.size} produit(s) sélectionné(s)</span>
+          <button
+            onClick={bulkDelete}
+            disabled={bulkDeleting}
+            style={{ background: "#e63946", color: "#fff", border: "none", padding: "8px 16px", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}
+          >
+            {bulkDeleting ? "Suppression..." : "🗑️ Supprimer la sélection"}
+          </button>
+        </div>
+      )}
+
       {existing.length === 0 && <p>Aucun produit importé pour l&apos;instant.</p>}
       {existing.map((p) => (
         <div key={p.handle} style={{ border: "1px solid #eee", borderRadius: 10, padding: 14, marginBottom: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <b>{p.name}</b> — {p.price.toLocaleString("fr-FR")} FCFA
-              {p.offers && p.offers.length > 0 && (
-                <span style={{ marginLeft: 8, fontSize: "0.8em", color: "#2a9d8f" }}>
-                  ({p.offers.length} offre{p.offers.length > 1 ? "s" : ""})
-                </span>
-              )}
-              <br />
-              <Link href={`/produit/${p.handle}`} style={{ fontSize: "0.85em" }}>/produit/{p.handle} →</Link>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <input
+                type="checkbox"
+                checked={selected.has(p.handle)}
+                onChange={() => toggleSelected(p.handle)}
+                style={{ marginTop: 4 }}
+              />
+              <div>
+                <b>{p.name}</b> — {p.price.toLocaleString("fr-FR")} FCFA
+                {p.offers && p.offers.length > 0 && (
+                  <span style={{ marginLeft: 8, fontSize: "0.8em", color: "#2a9d8f" }}>
+                    ({p.offers.length} offre{p.offers.length > 1 ? "s" : ""})
+                  </span>
+                )}
+                <br />
+                <Link href={`/produit/${p.handle}`} style={{ fontSize: "0.85em" }}>/produit/{p.handle} →</Link>
+              </div>
             </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => (editingProductHandle === p.handle ? setEditingProductHandle(null) : startEditProduct(p))}
+                style={{ background: "#6b3fa0", color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: "0.9em" }}
+              >
+                ✏️ Modifier
+              </button>
               <button
                 onClick={() => (editingHandle === p.handle ? setEditingHandle(null) : startEditOffers(p))}
                 style={{ background: "#f4841c", color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontSize: "0.9em" }}
               >
-                {p.offers && p.offers.length > 0 ? "✏️ Modifier les offres" : "➕ Ajouter des offres"}
+                {p.offers && p.offers.length > 0 ? "Modifier les offres" : "➕ Offres"}
               </button>
               <button
                 onClick={() => removeProduct(p.handle)}
@@ -276,6 +360,58 @@ export default function ProduitsAdminPage() {
               </button>
             </div>
           </div>
+
+          {editingProductHandle === p.handle && editProductForm && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Nom</p>
+              <input
+                value={editProductForm.name}
+                onChange={(e) => updateEditField("name", e.target.value)}
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", gap: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Prix (FCFA)</p>
+                  <input
+                    type="number"
+                    value={editProductForm.price || ""}
+                    onChange={(e) => updateEditField("price", e.target.value)}
+                    style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Prix barré (FCFA)</p>
+                  <input
+                    type="number"
+                    value={editProductForm.oldPrice || ""}
+                    onChange={(e) => updateEditField("oldPrice", e.target.value)}
+                    style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+                  />
+                </div>
+              </div>
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Image (nom de fichier ou URL complète)</p>
+              <input
+                value={editProductForm.image}
+                onChange={(e) => updateEditField("image", e.target.value)}
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+              />
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Description</p>
+              <textarea
+                value={editProductForm.description}
+                onChange={(e) => updateEditField("description", e.target.value)}
+                rows={4}
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 12, boxSizing: "border-box" }}
+              />
+              <button
+                onClick={saveEditProduct}
+                disabled={saveStatus === "loading"}
+                style={{ background: "#2a9d8f", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}
+              >
+                {saveStatus === "loading" ? "Enregistrement..." : "✅ Enregistrer"}
+              </button>
+              {saveStatus === "error" && <p style={{ color: "#e63946" }}>Erreur lors de l&apos;enregistrement.</p>}
+            </div>
+          )}
 
           {editingHandle === p.handle && (
             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>

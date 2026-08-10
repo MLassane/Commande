@@ -22,12 +22,15 @@ function CommandePage() {
   const handle = searchParams.get("produit");
 
   const [product, setProduct] = useState<ActiveProduct>({ ...DEFAULT_PRODUCT, offers: OFFERS });
+  const [productLoaded, setProductLoaded] = useState(false);
 
   useEffect(() => {
     if (!handle) {
       setProduct({ ...DEFAULT_PRODUCT, offers: OFFERS });
+      setProductLoaded(true);
       return;
     }
+    setProductLoaded(false);
     fetch(`/api/products/${handle}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -40,8 +43,9 @@ function CommandePage() {
             offers: data.product.offers,
           });
         }
+        setProductLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => setProductLoaded(true));
   }, [handle]);
 
   useEffect(() => {
@@ -159,6 +163,16 @@ function CommandePage() {
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
     window.open(url, "_blank");
+  }
+
+  if (!productLoaded) {
+    return (
+      <div style={styles.page}>
+        <div style={{ ...styles.card, textAlign: "center" as const, padding: "80px 20px" }}>
+          <p style={{ color: "#999" }}>Chargement...</p>
+        </div>
+      </div>
+    );
   }
 
   if (status === "done") {
