@@ -4,9 +4,9 @@ import { getProduct, deleteProduct } from "@/lib/products";
 export async function GET(req: NextRequest, { params }: { params: { handle: string } }) {
   const product = await getProduct(params.handle);
   if (!product) {
-    return NextResponse.json({ error: "not_found" }, { status: 404 });
+    return NextResponse.json({ error: "not_found" }, { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
   }
-  return NextResponse.json({ product });
+  return NextResponse.json({ product }, { headers: { "Access-Control-Allow-Origin": "*" } });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: { handle: string } }) {

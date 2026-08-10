@@ -1,5 +1,7 @@
 import { redis } from "@/lib/redis";
 
+export type Offer = { qty: number; price: number };
+
 export type Product = {
   handle: string; // identifiant unique dans l'URL, ex: "massage-stick"
   name: string;
@@ -7,6 +9,7 @@ export type Product = {
   oldPrice: number;
   image: string; // nom de fichier dans /public/images/, ex: "massage-stick-1.jpg"
   description: string;
+  offers?: Offer[]; // offres par quantité, optionnel
 };
 
 const KEY = "products_v1";
