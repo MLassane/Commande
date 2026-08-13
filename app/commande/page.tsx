@@ -7,7 +7,11 @@ import { COUNTRIES, DEFAULT_COUNTRY, Country } from "@/lib/countries";
 import { PRODUCT as DEFAULT_PRODUCT, OFFERS, WHATSAPP_NUMBER } from "@/lib/config";
 
 type Offer = { qty: number; price: number };
-type ActiveProduct = { name: string; price: number; oldPrice: number; currency: string; offers?: Offer[] };
+// tenantId : marchand propriétaire du produit affiché. Récupéré depuis le
+// catalogue (cas 3 ci-dessous) et renvoyé avec la commande, pour que celle-ci
+// atterrisse dans le bon dashboard admin. Absent pour les liens "codés en
+// dur" (?nom=...&prix=...) qui ne passent pas par le catalogue.
+type ActiveProduct = { name: string; price: number; oldPrice: number; currency: string; offers?: Offer[]; tenantId?: string };
 
 export default function CommandePageWrapper() {
   return (
@@ -60,6 +64,10 @@ function CommandePage() {
             oldPrice: data.product.oldPrice,
             currency: "FCFA",
             offers: data.product.offers,
+            // On récupère le tenantId du produit pour l'envoyer avec la
+            // commande — c'est ce qui permet à la commande d'apparaître
+            // dans le dashboard admin du bon marchand.
+            tenantId: data.product.tenantId,
           });
         }
         setProductLoaded(true);
@@ -149,7 +157,8 @@ function CommandePage() {
       const res = await fetch("/api/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, phone: fullPhone(), product: activeName, price: activePrice, qty: activeQty }),
+        // tenantId inclus pour que la commande soit rattachée au bon marchand.
+        body: JSON.stringify({ ...form, phone: fullPhone(), product: activeName, price: activePrice, qty: activeQty, tenantId: PRODUCT.tenantId }),
       });
       if (!res.ok) throw new Error("failed");
       setStatus("done");
@@ -167,7 +176,8 @@ function CommandePage() {
     fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, phone: fullPhone(), product: activeName, price: activePrice, qty: activeQty }),
+      // tenantId inclus pour que la commande soit rattachée au bon marchand.
+      body: JSON.stringify({ ...form, phone: fullPhone(), product: activeName, price: activePrice, qty: activeQty, tenantId: PRODUCT.tenantId }),
     }).catch(() => {});
 
     const message =

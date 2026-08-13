@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveProducts, Product } from "@/lib/products";
+import { resolveTenantId } from "@/lib/tenant";
 
 export async function POST(req: NextRequest) {
   const secret = req.headers.get("x-admin-secret");
@@ -14,8 +15,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "empty" }, { status: 400 });
   }
 
+  // Les produits importés/édités sont rangés dans le catalogue du marchand
+  // courant (saveProducts force le tenantId dessus, voir lib/products.ts).
+  const tenantId = resolveTenantId(req);
+
   try {
-    await saveProducts(products);
+    await saveProducts(products, tenantId);
   } catch (err) {
     return NextResponse.json({ error: "save_failed", detail: String(err) }, { status: 500 });
   }
