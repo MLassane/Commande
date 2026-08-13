@@ -2,6 +2,11 @@
 
 import { useEffect, useState } from "react";
 import type { Order } from "@/lib/kv";
+import { DEFAULT_TENANT_ID } from "@/lib/products";
+
+// Tenant courant de ce dashboard. Codé en dur en attendant la vraie
+// authentification multi-comptes (voir même remarque dans admin/produits).
+const ADMIN_TENANT_ID = DEFAULT_TENANT_ID;
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -28,7 +33,8 @@ export default function AdminPage() {
   }, []);
 
   async function fetchOrders(s: string) {
-    const res = await fetch("/api/orders", { headers: { "x-admin-secret": s } });
+    // On précise le tenant courant pour ne récupérer que ses commandes.
+    const res = await fetch("/api/orders", { headers: { "x-admin-secret": s, "x-tenant-id": ADMIN_TENANT_ID } });
     if (res.ok) {
       const data = await res.json();
       setOrders(data.orders);
@@ -39,7 +45,7 @@ export default function AdminPage() {
     if (!confirm("Supprimer cette commande ?")) return;
     const res = await fetch(`/api/orders/${id}`, {
       method: "DELETE",
-      headers: { "x-admin-secret": secret },
+      headers: { "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
     });
     if (res.ok) {
       setOrders((prev) => prev.filter((o) => o.id !== id));

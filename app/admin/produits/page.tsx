@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseCSV } from "@/lib/csv";
 import type { Product, Offer } from "@/lib/products";
+import { DEFAULT_TENANT_ID } from "@/lib/products";
+
+// Tenant courant de cet écran admin. Codé en dur pour l'instant car il
+// n'existe qu'un seul marchand réel — une fois l'auth multi-comptes en
+// place, cette valeur viendra du compte connecté au lieu d'être fixe.
+const ADMIN_TENANT_ID = DEFAULT_TENANT_ID;
 
 // Décode une colonne "offres" au format "1:9900;2:14900;3:29900"
 // (quantité:prix, séparés par ";") en tableau d'offres.
@@ -37,7 +43,8 @@ export default function ProduitsAdminPage() {
   }, []);
 
   async function fetchExisting() {
-    const res = await fetch("/api/products");
+    // On précise le tenant courant pour ne récupérer que son catalogue.
+    const res = await fetch("/api/products", { headers: { "x-tenant-id": ADMIN_TENANT_ID } });
     if (res.ok) {
       const data = await res.json();
       setExisting(data.products);
@@ -94,6 +101,10 @@ export default function ProduitsAdminPage() {
           .slice(1)
           .map((r) => ({
             handle: (r[idx.handle] || "").trim(),
+            // Le tenantId réel est de toute façon réappliqué côté serveur
+            // (voir saveProducts dans lib/products.ts) ; on le renseigne
+            // ici uniquement pour satisfaire le typage côté client.
+            tenantId: ADMIN_TENANT_ID,
             name: (r[idx.name] || "").trim(),
             price: Math.round(parseFloat((r[idx.price] || "0").replace(",", ".").replace(/[^\d.]/g, "")) || 0),
             oldPrice:
@@ -123,7 +134,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
         body: JSON.stringify({ products: preview }),
       });
       if (!res.ok) throw new Error("failed");
@@ -139,7 +150,7 @@ export default function ProduitsAdminPage() {
     if (!confirm(`Supprimer le produit "${handle}" ?`)) return;
     const res = await fetch(`/api/products/${handle}`, {
       method: "DELETE",
-      headers: { "x-admin-secret": secret },
+      headers: { "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
     });
     if (res.ok) setExisting((prev) => prev.filter((p) => p.handle !== handle));
   }
@@ -192,7 +203,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
         body: JSON.stringify({ products: [editProductForm] }),
       });
       if (!res.ok) throw new Error("failed");
@@ -229,7 +240,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret },
+        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
         body: JSON.stringify({ products: [updated] }),
       });
       if (!res.ok) throw new Error("failed");
