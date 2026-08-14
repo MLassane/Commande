@@ -22,10 +22,12 @@ export default clerkMiddleware((auth, req) => {
 });
 
 export const config = {
-  // Le middleware s'exécute sur toutes les routes sauf les fichiers
-  // statiques (images, css, etc.) et les fichiers internes de Next.js.
+  // Pattern officiel recommandé par Clerk : le middleware s'exécute sur
+  // toutes les routes sauf les fichiers statiques internes de Next.js
+  // (_next/static, _next/image, favicon...) et les fichiers avec extension
+  // (images, css, etc.), plus systématiquement sur les routes API.
   matcher: [
-    "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv)).*)",
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|csv)$).*)",
     "/(api|trpc)(.*)",
   ],
 };
