@@ -1,12 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { UserButton } from "@clerk/nextjs";
 import type { Order } from "@/lib/kv";
-import { DEFAULT_TENANT_ID } from "@/lib/products";
-
-// Tenant courant de ce dashboard. Codé en dur en attendant la vraie
-// authentification multi-comptes (voir même remarque dans admin/produits).
-const ADMIN_TENANT_ID = DEFAULT_TENANT_ID;
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
@@ -17,24 +13,21 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from(rawData.split("").map((c) => c.charCodeAt(0)));
 }
 
+// Plus besoin de gérer un mot de passe partagé ici : le middleware Clerk
+// (voir middleware.ts) bloque déjà l'accès à cette page si l'utilisateur
+// n'est pas connecté, et redirige automatiquement vers /sign-in. Le
+// fetch("/api/orders") ci-dessous envoie le cookie de session Clerk
+// automatiquement (même origine), donc pas besoin d'ajouter de header.
 export default function AdminPage() {
-  const [secret, setSecret] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [notifStatus, setNotifStatus] = useState<"idle" | "on" | "error">("idle");
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("admin_secret");
-    if (saved) {
-      setSecret(saved);
-      setUnlocked(true);
-      fetchOrders(saved);
-    }
+    fetchOrders();
   }, []);
 
-  async function fetchOrders(s: string) {
-    // On précise le tenant courant pour ne récupérer que ses commandes.
-    const res = await fetch("/api/orders", { headers: { "x-admin-secret": s, "x-tenant-id": ADMIN_TENANT_ID } });
+  async function fetchOrders() {
+    const res = await fetch("/api/orders");
     if (res.ok) {
       const data = await res.json();
       setOrders(data.orders);
@@ -43,10 +36,7 @@ export default function AdminPage() {
 
   async function removeOrder(id: string) {
     if (!confirm("Supprimer cette commande ?")) return;
-    const res = await fetch(`/api/orders/${id}`, {
-      method: "DELETE",
-      headers: { "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
-    });
+    const res = await fetch(`/api/orders/${id}`, { method: "DELETE" });
     if (res.ok) {
       setOrders((prev) => prev.filter((o) => o.id !== id));
     } else {
@@ -85,12 +75,6 @@ export default function AdminPage() {
     URL.revokeObjectURL(url);
   }
 
-  function login() {
-    sessionStorage.setItem("admin_secret", secret);
-    setUnlocked(true);
-    fetchOrders(secret);
-  }
-
   async function enableNotifications() {
     try {
       if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
@@ -119,25 +103,14 @@ export default function AdminPage() {
     }
   }
 
-  if (!unlocked) {
-    return (
-      <div style={{ maxWidth: 360, margin: "80px auto", fontFamily: "Arial" }}>
-        <h2>Accès admin</h2>
-        <input
-          type="password"
-          placeholder="Code secret"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          style={{ width: "100%", padding: 10, marginBottom: 10 }}
-        />
-        <button onClick={login} style={{ width: "100%", padding: 10 }}>Entrer</button>
-      </div>
-    );
-  }
-
   return (
     <div style={{ maxWidth: 700, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
-      <h1>📋 Commandes reçues</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1>📋 Commandes reçues</h1>
+        {/* UserButton affiche l'avatar/email du marchand connecté et propose
+            "Se déconnecter" dans son menu. */}
+        <UserButton afterSignOutUrl="/sign-in" />
+      </div>
 
       <button
         onClick={enableNotifications}

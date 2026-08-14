@@ -2,14 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { UserButton, useUser } from "@clerk/nextjs";
 import { parseCSV } from "@/lib/csv";
 import type { Product, Offer } from "@/lib/products";
-import { DEFAULT_TENANT_ID } from "@/lib/products";
-
-// Tenant courant de cet écran admin. Codé en dur pour l'instant car il
-// n'existe qu'un seul marchand réel — une fois l'auth multi-comptes en
-// place, cette valeur viendra du compte connecté au lieu d'être fixe.
-const ADMIN_TENANT_ID = DEFAULT_TENANT_ID;
 
 // Décode une colonne "offres" au format "1:9900;2:14900;3:29900"
 // (quantité:prix, séparés par ";") en tableau d'offres.
@@ -26,35 +21,29 @@ function parseOffers(raw: string): Offer[] | undefined {
 }
 
 export default function ProduitsAdminPage() {
-  const [secret, setSecret] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
+  // useUser() donne l'utilisateur Clerk connecté. userId sert uniquement
+  // à préremplir le champ tenantId côté client pour satisfaire le typage
+  // (le serveur réapplique de toute façon le vrai tenantId à partir de la
+  // session, voir requireAdminTenantId() dans lib/tenant.ts — impossible
+  // de tricher en envoyant un tenantId différent depuis le navigateur).
+  const { user } = useUser();
   const [preview, setPreview] = useState<Product[]>([]);
   const [existing, setExisting] = useState<Product[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("admin_secret");
-    if (saved) {
-      setSecret(saved);
-      setUnlocked(true);
-      fetchExisting();
-    }
+    fetchExisting();
   }, []);
 
   async function fetchExisting() {
-    // On précise le tenant courant pour ne récupérer que son catalogue.
-    const res = await fetch("/api/products", { headers: { "x-tenant-id": ADMIN_TENANT_ID } });
+    // Le cookie de session Clerk est envoyé automatiquement (même origine) ;
+    // l'API récupère le catalogue du marchand connecté sans header à ajouter.
+    const res = await fetch("/api/products");
     if (res.ok) {
       const data = await res.json();
       setExisting(data.products);
     }
-  }
-
-  function login() {
-    sessionStorage.setItem("admin_secret", secret);
-    setUnlocked(true);
-    fetchExisting();
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -101,10 +90,9 @@ export default function ProduitsAdminPage() {
           .slice(1)
           .map((r) => ({
             handle: (r[idx.handle] || "").trim(),
-            // Le tenantId réel est de toute façon réappliqué côté serveur
-            // (voir saveProducts dans lib/products.ts) ; on le renseigne
-            // ici uniquement pour satisfaire le typage côté client.
-            tenantId: ADMIN_TENANT_ID,
+            // Valeur indicative seulement — voir commentaire sur useUser()
+            // en haut du fichier : le serveur réapplique le vrai tenantId.
+            tenantId: user?.id || "",
             name: (r[idx.name] || "").trim(),
             price: Math.round(parseFloat((r[idx.price] || "0").replace(",", ".").replace(/[^\d.]/g, "")) || 0),
             oldPrice:
@@ -134,7 +122,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: preview }),
       });
       if (!res.ok) throw new Error("failed");
@@ -148,10 +136,7 @@ export default function ProduitsAdminPage() {
 
   async function removeProduct(handle: string) {
     if (!confirm(`Supprimer le produit "${handle}" ?`)) return;
-    const res = await fetch(`/api/products/${handle}`, {
-      method: "DELETE",
-      headers: { "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
-    });
+    const res = await fetch(`/api/products/${handle}`, { method: "DELETE" });
     if (res.ok) setExisting((prev) => prev.filter((p) => p.handle !== handle));
   }
 
@@ -179,7 +164,7 @@ export default function ProduitsAdminPage() {
     if (!confirm(`Supprimer ${selected.size} produit(s) sélectionné(s) ?`)) return;
     setBulkDeleting(true);
     for (const handle of Array.from(selected)) {
-      await fetch(`/api/products/${handle}`, { method: "DELETE", headers: { "x-admin-secret": secret } });
+      await fetch(`/api/products/${handle}`, { method: "DELETE" });
     }
     setExisting((prev) => prev.filter((p) => !selected.has(p.handle)));
     setSelected(new Set());
@@ -203,7 +188,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: [editProductForm] }),
       });
       if (!res.ok) throw new Error("failed");
@@ -240,7 +225,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: [updated] }),
       });
       if (!res.ok) throw new Error("failed");
@@ -251,25 +236,12 @@ export default function ProduitsAdminPage() {
     }
   }
 
-  if (!unlocked) {
-    return (
-      <div style={{ maxWidth: 360, margin: "80px auto", fontFamily: "Arial" }}>
-        <h2>Accès admin</h2>
-        <input
-          type="password"
-          placeholder="Code secret"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          style={{ width: "100%", padding: 10, marginBottom: 10 }}
-        />
-        <button onClick={login} style={{ width: "100%", padding: 10 }}>Entrer</button>
-      </div>
-    );
-  }
-
   return (
     <div style={{ maxWidth: 800, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
-      <h1>📦 Catalogue produits</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1>📦 Catalogue produits</h1>
+        <UserButton afterSignOutUrl="/sign-in" />
+      </div>
       <p style={{ color: "#666" }}>
         Importe un fichier CSV avec les colonnes : <code>handle, nom, prix, prix_barre, image, description</code>
       </p>

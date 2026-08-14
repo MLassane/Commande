@@ -1,14 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { listOrders } from "@/lib/kv";
-import { resolveTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/tenant";
 
-export async function GET(req: NextRequest) {
-  const secret = req.headers.get("x-admin-secret");
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
+export async function GET() {
+  // Route protégée par middleware.ts (redirige/401 si non connecté).
+  // On revérifie ici et on récupère le tenantId = identifiant du marchand
+  // connecté, pour qu'il ne voie que ses propres commandes.
+  let tenantId: string;
+  try {
+    tenantId = requireAdminTenantId();
+  } catch {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  // Chaque marchand ne voit que ses propres commandes.
-  const tenantId = resolveTenantId(req);
   const orders = await listOrders(tenantId);
   return NextResponse.json({ orders });
 }
