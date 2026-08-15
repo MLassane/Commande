@@ -38,6 +38,7 @@ export async function POST(req: NextRequest) {
     day,
     time,
     createdAt: new Date().toISOString(),
+    status: "en_attente",
   };
 
   try {
