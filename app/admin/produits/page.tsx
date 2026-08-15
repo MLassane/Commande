@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { signOut } from "next-auth/react";
 import { parseCSV } from "@/lib/csv";
 import type { Product, Offer } from "@/lib/products";
+import AdminNav from "@/components/AdminNav";
 
 // Décode une colonne "offres" au format "1:9900;2:14900;3:29900"
 // (quantité:prix, séparés par ";") en tableau d'offres.
@@ -237,15 +237,8 @@ export default function ProduitsAdminPage() {
 
   return (
     <div style={{ maxWidth: 800, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>📦 Catalogue produits</h1>
-        <button
-          onClick={() => signOut({ callbackUrl: "/sign-in" })}
-          style={{ background: "none", border: "1px solid #ccc", borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}
-        >
-          Se déconnecter
-        </button>
-      </div>
+      <AdminNav />
+      <h1>📦 Catalogue produits</h1>
       <p style={{ color: "#666" }}>
         Importe un fichier CSV avec les colonnes : <code>handle, nom, prix, prix_barre, image, description</code>
       </p>
