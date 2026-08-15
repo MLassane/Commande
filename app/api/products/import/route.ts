@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   // passent tous par ici — voir app/admin/produits/page.tsx).
   let tenantId: string;
   try {
-    tenantId = requireAdminTenantId();
+    tenantId = await requireAdminTenantId();
   } catch {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

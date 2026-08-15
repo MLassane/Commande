@@ -8,7 +8,7 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   // commande d'un autre marchand même en devinant son id.
   let tenantId: string;
   try {
-    tenantId = requireAdminTenantId();
+    tenantId = await requireAdminTenantId();
   } catch {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

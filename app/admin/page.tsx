@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { UserButton } from "@clerk/nextjs";
+import { signOut } from "next-auth/react";
 import type { Order } from "@/lib/kv";
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
@@ -13,10 +13,10 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from(rawData.split("").map((c) => c.charCodeAt(0)));
 }
 
-// Plus besoin de gérer un mot de passe partagé ici : le middleware Clerk
+// Plus besoin de gérer un mot de passe partagé ici : le middleware Auth.js
 // (voir middleware.ts) bloque déjà l'accès à cette page si l'utilisateur
 // n'est pas connecté, et redirige automatiquement vers /sign-in. Le
-// fetch("/api/orders") ci-dessous envoie le cookie de session Clerk
+// fetch("/api/orders") ci-dessous envoie le cookie de session Auth.js
 // automatiquement (même origine), donc pas besoin d'ajouter de header.
 export default function AdminPage() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -107,9 +107,12 @@ export default function AdminPage() {
     <div style={{ maxWidth: 700, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>📋 Commandes reçues</h1>
-        {/* UserButton affiche l'avatar/email du marchand connecté et propose
-            "Se déconnecter" dans son menu. */}
-        <UserButton afterSignOutUrl="/sign-in" />
+        <button
+          onClick={() => signOut({ callbackUrl: "/sign-in" })}
+          style={{ background: "none", border: "1px solid #ccc", borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}
+        >
+          Se déconnecter
+        </button>
       </div>
 
       <button

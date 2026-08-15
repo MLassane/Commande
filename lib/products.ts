@@ -3,7 +3,7 @@ import { redis } from "@/lib/redis";
 export type Offer = { qty: number; price: number };
 
 // Identifiant du marchand par défaut, utilisé tant que le vrai système
-// d'authentification multi-comptes (Clerk / Auth.js) n'est pas branché.
+// d'authentification multi-comptes (Auth.js) n'est pas branché.
 // Une fois l'auth en place, ce identifiant viendra de la session connectée
 // au lieu d'être codé en dur ici.
 export const DEFAULT_TENANT_ID = "default";

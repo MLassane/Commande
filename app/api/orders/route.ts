@@ -8,7 +8,7 @@ export async function GET() {
   // connecté, pour qu'il ne voie que ses propres commandes.
   let tenantId: string;
   try {
-    tenantId = requireAdminTenantId();
+    tenantId = await requireAdminTenantId();
   } catch {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

@@ -17,11 +17,11 @@ export async function GET(req: NextRequest, { params }: { params: { handle: stri
 // DELETE est admin-only. Cette route n'est pas dans le matcher du
 // middleware (qui ne peut filtrer que par chemin, pas par méthode HTTP,
 // et /api/products/[handle] doit rester accessible en GET sans connexion),
-// donc on vérifie l'authentification Clerk manuellement ici.
+// donc on vérifie l'authentification Auth.js manuellement ici.
 export async function DELETE(req: NextRequest, { params }: { params: { handle: string } }) {
   let tenantId: string;
   try {
-    tenantId = requireAdminTenantId();
+    tenantId = await requireAdminTenantId();
   } catch {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }

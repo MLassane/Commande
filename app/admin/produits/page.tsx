@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { signOut } from "next-auth/react";
 import { parseCSV } from "@/lib/csv";
 import type { Product, Offer } from "@/lib/products";
 
@@ -21,12 +21,11 @@ function parseOffers(raw: string): Offer[] | undefined {
 }
 
 export default function ProduitsAdminPage() {
-  // useUser() donne l'utilisateur Clerk connecté. userId sert uniquement
-  // à préremplir le champ tenantId côté client pour satisfaire le typage
-  // (le serveur réapplique de toute façon le vrai tenantId à partir de la
-  // session, voir requireAdminTenantId() dans lib/tenant.ts — impossible
-  // de tricher en envoyant un tenantId différent depuis le navigateur).
-  const { user } = useUser();
+  // Le tenantId réel est toujours réappliqué côté serveur, à partir de la
+  // session connectée (voir requireAdminTenantId() dans lib/tenant.ts) —
+  // impossible de tricher en envoyant un tenantId différent depuis le
+  // navigateur. La valeur ci-dessous n'est qu'un placeholder pour
+  // satisfaire le typage de Product côté client.
   const [preview, setPreview] = useState<Product[]>([]);
   const [existing, setExisting] = useState<Product[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
@@ -37,7 +36,7 @@ export default function ProduitsAdminPage() {
   }, []);
 
   async function fetchExisting() {
-    // Le cookie de session Clerk est envoyé automatiquement (même origine) ;
+    // Le cookie de session Auth.js est envoyé automatiquement (même origine) ;
     // l'API récupère le catalogue du marchand connecté sans header à ajouter.
     const res = await fetch("/api/products");
     if (res.ok) {
@@ -92,7 +91,7 @@ export default function ProduitsAdminPage() {
             handle: (r[idx.handle] || "").trim(),
             // Valeur indicative seulement — voir commentaire sur useUser()
             // en haut du fichier : le serveur réapplique le vrai tenantId.
-            tenantId: user?.id || "",
+            tenantId: "",
             name: (r[idx.name] || "").trim(),
             price: Math.round(parseFloat((r[idx.price] || "0").replace(",", ".").replace(/[^\d.]/g, "")) || 0),
             oldPrice:
@@ -240,7 +239,12 @@ export default function ProduitsAdminPage() {
     <div style={{ maxWidth: 800, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1>📦 Catalogue produits</h1>
-        <UserButton afterSignOutUrl="/sign-in" />
+        <button
+          onClick={() => signOut({ callbackUrl: "/sign-in" })}
+          style={{ background: "none", border: "1px solid #ccc", borderRadius: 6, padding: "6px 12px", cursor: "pointer" }}
+        >
+          Se déconnecter
+        </button>
       </div>
       <p style={{ color: "#666" }}>
         Importe un fichier CSV avec les colonnes : <code>handle, nom, prix, prix_barre, image, description</code>

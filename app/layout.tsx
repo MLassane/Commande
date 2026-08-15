@@ -1,4 +1,4 @@
-import { ClerkProvider } from "@clerk/nextjs";
+import Providers from "@/components/Providers";
 
 export const metadata = {
   title: "Commande",
@@ -7,13 +7,13 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // ClerkProvider donne accès à l'état de connexion (useUser, auth(),
-    // middleware.ts) partout dans l'app — nécessaire pour que /admin et
-    // les routes API protégées fonctionnent.
-    <ClerkProvider>
+    // Providers (SessionProvider d'Auth.js) donne accès à l'état de
+    // connexion (useSession, signOut) partout dans l'app — nécessaire
+    // pour /admin et le bouton de déconnexion.
+    <Providers>
       <html lang="fr">
         <body style={{ margin: 0, fontFamily: "Arial, sans-serif" }}>{children}</body>
       </html>
-    </ClerkProvider>
+    </Providers>
   );
 }
