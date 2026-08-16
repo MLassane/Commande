@@ -23,6 +23,25 @@ livraison, prix en FCFA). Règles à respecter strictement :
 - N'inclus jamais de <html>, <head> ou <body> — uniquement le fragment de contenu.
 `.trim();
 
+// Nouvelle tentative automatique en cas d'erreur temporaire du fournisseur
+// (503 = serveur surchargé, 429 = trop de requêtes) — ces erreurs se
+// résolvent presque toujours d'elles-mêmes après une courte pause. On ne
+// retente PAS les autres erreurs (ex: 400/401/404), qui ne changeront pas
+// en réessayant.
+async function fetchWithRetry(url: string, init: RequestInit, maxAttempts = 3): Promise<Response> {
+  let lastRes: Response | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetch(url, init);
+    if (res.ok || (res.status !== 503 && res.status !== 429)) return res;
+    lastRes = res;
+    if (attempt < maxAttempts) {
+      const delayMs = 800 * attempt; // 800ms, puis 1600ms
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return lastRes as Response;
+}
+
 // --- Gemini (analyse d'image) ---
 export async function callGeminiVision(params: { system: string; prompt: string; imageBase64: string; mediaType: string }): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -34,7 +53,7 @@ export async function callGeminiVision(params: { system: string; prompt: string;
   // toujours vers son modèle Flash stable le plus récent — évite de
   // devoir mettre à jour ce nom à chaque fois que Google retire un
   // ancien modèle (comme "gemini-2.5-flash" précédemment).
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
+  const res = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -48,6 +67,9 @@ export async function callGeminiVision(params: { system: string; prompt: string;
   });
 
   if (!res.ok) {
+    if (res.status === 503) {
+      throw new Error("Le service Gemini est surchargé en ce moment. Réessaie dans quelques instants.");
+    }
     const errText = await res.text();
     throw new Error(`Erreur API Gemini (${res.status}): ${errText}`);
   }
@@ -65,7 +87,7 @@ export async function callGroqText(params: { system: string; prompt: string; max
     throw new Error("GROQ_API_KEY manquante — ajoute-la dans les variables d'environnement Vercel (clé sur console.groq.com/keys).");
   }
 
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  const res = await fetchWithRetry("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -82,6 +104,9 @@ export async function callGroqText(params: { system: string; prompt: string; max
   });
 
   if (!res.ok) {
+    if (res.status === 503) {
+      throw new Error("Le service Groq est surchargé en ce moment. Réessaie dans quelques instants.");
+    }
     const errText = await res.text();
     throw new Error(`Erreur API Groq (${res.status}): ${errText}`);
   }
