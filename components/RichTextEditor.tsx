@@ -111,6 +111,10 @@ export default function RichTextEditor({ value, onChange }: { value: string; onC
   const [showTableMenu, setShowTableMenu] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showImageMenu, setShowImageMenu] = useState(false);
+  const [showAiMenu, setShowAiMenu] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [aiError, setAiError] = useState("");
 
   const editor = useEditor({
     // Évite un décalage d'hydratation Next.js : le contenu ne se rend
@@ -146,6 +150,7 @@ export default function RichTextEditor({ value, onChange }: { value: string; onC
     setShowTableMenu(false);
     setShowMoreMenu(false);
     setShowImageMenu(false);
+    setShowAiMenu(false);
   }
 
   function currentHeadingLabel(): string {
@@ -163,6 +168,29 @@ export default function RichTextEditor({ value, onChange }: { value: string; onC
     else if (opt.type === "heading" && opt.level) chain.setHeading({ level: opt.level }).run();
     else if (opt.type === "blockquote") chain.toggleBlockquote().run();
     setShowHeadingMenu(false);
+  }
+
+  async function handleAiGenerate() {
+    if (!aiInstruction.trim()) return;
+    setAiStatus("loading");
+    setAiError("");
+    try {
+      const res = await fetch("/api/ai/generate-section", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instruction: aiInstruction, contextHtml: editor.getHTML() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Erreur inconnue");
+      // Insère le fragment généré à l'endroit où était le curseur.
+      editor.chain().focus().insertContent(json.html).run();
+      setAiInstruction("");
+      setShowAiMenu(false);
+      setAiStatus("idle");
+    } catch (err) {
+      setAiError((err as Error).message);
+      setAiStatus("error");
+    }
   }
 
   return (
@@ -400,6 +428,45 @@ export default function RichTextEditor({ value, onChange }: { value: string; onC
               >
                 🚫
               </ToolbarButton>
+            </div>
+          )}
+        </div>
+
+        {/* Ajouter une section avec l'IA */}
+        <div style={{ position: "relative" }}>
+          <ToolbarButton
+            title="Ajouter une section avec l'IA"
+            onClick={() => {
+              closeAllMenus();
+              setShowAiMenu((v) => !v);
+            }}
+          >
+            ✨ IA
+          </ToolbarButton>
+          {showAiMenu && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{ position: "absolute", zIndex: 20, top: "100%", left: 0, background: "#fff", border: "1px solid #ddd", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,0.12)", padding: 12, width: 280 }}
+            >
+              <p style={{ fontSize: "0.85em", color: "#666", margin: "0 0 6px" }}>
+                Décris la section à ajouter (ex : &quot;section témoignages avec 3 avis clients&quot;)
+              </p>
+              <textarea
+                value={aiInstruction}
+                onChange={(e) => setAiInstruction(e.target.value)}
+                rows={3}
+                placeholder="Ajoute une section Avant/Après..."
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 8, boxSizing: "border-box", fontSize: "0.9em" }}
+              />
+              <button
+                type="button"
+                onClick={handleAiGenerate}
+                disabled={aiStatus === "loading" || !aiInstruction.trim()}
+                style={{ width: "100%", background: "#6b3fa0", color: "#fff", border: "none", padding: "8px 12px", borderRadius: 6, fontWeight: "bold", cursor: "pointer" }}
+              >
+                {aiStatus === "loading" ? "Génération..." : "✨ Générer et insérer"}
+              </button>
+              {aiStatus === "error" && <p style={{ color: "#e63946", fontSize: "0.8em", marginTop: 6 }}>{aiError}</p>}
             </div>
           )}
         </div>

@@ -11,7 +11,7 @@ const { auth } = NextAuth(authConfig);
 // Routes qui nécessitent d'être connecté : les pages admin elles-mêmes,
 // et les routes API utilisées uniquement par l'admin (import/suppression
 // de produits, consultation/suppression des commandes, statistiques).
-const PROTECTED_PREFIXES = ["/admin", "/api/products/import", "/api/orders", "/api/stats", "/api/upload"];
+const PROTECTED_PREFIXES = ["/admin", "/api/products/import", "/api/orders", "/api/stats", "/api/upload", "/api/ai"];
 
 function isProtected(pathname: string): boolean {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p));

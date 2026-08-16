@@ -7,6 +7,7 @@ import type { Product, Offer } from "@/lib/products";
 import { textToHtml, looksLikeHtml } from "@/lib/richtext";
 import RichTextEditor from "@/components/RichTextEditor";
 import ImageUploadButton from "@/components/ImageUploadButton";
+import AIImageGenerate from "@/components/AIImageGenerate";
 import AdminNav from "@/components/AdminNav";
 
 // Décode une colonne "offres" au format "1:9900;2:14900;3:29900"
@@ -356,6 +357,13 @@ export default function ProduitsAdminPage() {
         <div style={{ border: "1px solid #6b3fa0", borderRadius: 12, padding: 16, marginBottom: 24 }}>
           <h3 style={{ marginTop: 0 }}>Nouveau produit</h3>
 
+          <AIImageGenerate
+            onGenerated={({ name, description }) => {
+              setEditProductForm((prev) => (prev ? { ...prev, name, description } : prev));
+              setDescMode("visual");
+            }}
+          />
+
           <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Handle (identifiant dans l&apos;URL, ex: massage-stick)</p>
           <input
             value={editProductForm.handle}
@@ -542,6 +550,12 @@ export default function ProduitsAdminPage() {
 
           {editingProductHandle === p.handle && editProductForm && (
             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
+              <AIImageGenerate
+                onGenerated={({ name, description }) => {
+                  setEditProductForm((prev) => (prev ? { ...prev, name, description } : prev));
+                  setDescMode("visual");
+                }}
+              />
               <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Titre</p>
               <input
                 value={editProductForm.name}
