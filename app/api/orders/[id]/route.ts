@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteOrder } from "@/lib/kv";
-import { requireAdminTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/admin-tenant";
 
 export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
   // Route protégée par middleware.ts. On supprime la commande uniquement

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { updateOrderStatus, OrderStatus } from "@/lib/kv";
-import { requireAdminTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/admin-tenant";
 
 const VALID_STATUSES: OrderStatus[] = ["en_attente", "confirmee", "livree", "annulee"];
 

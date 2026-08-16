@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { saveProducts, Product } from "@/lib/products";
-import { requireAdminTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/admin-tenant";
 
 export async function POST(req: NextRequest) {
   // Route protégée par middleware.ts (import CSV, ajout, édition d'offres

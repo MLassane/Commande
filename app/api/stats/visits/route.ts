@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/admin-tenant";
 import { getVisitsForRange } from "@/lib/visits";
 
 export async function GET(req: NextRequest) {

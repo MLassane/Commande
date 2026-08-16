@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProduct, deleteProduct } from "@/lib/products";
-import { resolvePublicTenantId, requireAdminTenantId } from "@/lib/tenant";
+import { resolvePublicTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/admin-tenant";
 
 // GET reste public : la page /produit/[handle] et la page /commande en ont
 // besoin sans que le client final soit connecté. Le tenant est résolu via

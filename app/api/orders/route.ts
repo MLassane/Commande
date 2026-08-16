@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listOrders } from "@/lib/kv";
-import { requireAdminTenantId } from "@/lib/tenant";
+import { requireAdminTenantId } from "@/lib/admin-tenant";
 
 export async function GET() {
   // Route protégée par middleware.ts (redirige/401 si non connecté).
