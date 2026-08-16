@@ -30,7 +30,11 @@ export async function callGeminiVision(params: { system: string; prompt: string;
     throw new Error("GEMINI_API_KEY manquante — ajoute-la dans les variables d'environnement Vercel (clé sur aistudio.google.com/apikey).");
   }
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+  // "gemini-flash-latest" est un alias fourni par Google qui pointe
+  // toujours vers son modèle Flash stable le plus récent — évite de
+  // devoir mettre à jour ce nom à chaque fois que Google retire un
+  // ancien modèle (comme "gemini-2.5-flash" précédemment).
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
