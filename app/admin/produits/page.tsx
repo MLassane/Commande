@@ -358,8 +358,8 @@ export default function ProduitsAdminPage() {
           <h3 style={{ marginTop: 0 }}>Nouveau produit</h3>
 
           <AIImageGenerate
-            onGenerated={({ name, description }) => {
-              setEditProductForm((prev) => (prev ? { ...prev, name, description } : prev));
+            onGenerated={({ name, description, imageUrl }) => {
+              setEditProductForm((prev) => (prev ? { ...prev, name, description, image: imageUrl } : prev));
               setDescMode("visual");
             }}
           />
@@ -551,8 +551,8 @@ export default function ProduitsAdminPage() {
           {editingProductHandle === p.handle && editProductForm && (
             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
               <AIImageGenerate
-                onGenerated={({ name, description }) => {
-                  setEditProductForm((prev) => (prev ? { ...prev, name, description } : prev));
+                onGenerated={({ name, description, imageUrl }) => {
+                  setEditProductForm((prev) => (prev ? { ...prev, name, description, image: imageUrl } : prev));
                   setDescMode("visual");
                 }}
               />

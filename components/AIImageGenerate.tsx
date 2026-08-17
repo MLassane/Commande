@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { upload } from "@vercel/blob/client";
 
 function fileToBase64(file: File): Promise<{ data: string; mediaType: string }> {
   return new Promise((resolve, reject) => {
@@ -15,7 +16,7 @@ function fileToBase64(file: File): Promise<{ data: string; mediaType: string }> 
   });
 }
 
-export default function AIImageGenerate({ onGenerated }: { onGenerated: (result: { name: string; description: string }) => void }) {
+export default function AIImageGenerate({ onGenerated }: { onGenerated: (result: { name: string; description: string; imageUrl: string }) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
@@ -26,15 +27,23 @@ export default function AIImageGenerate({ onGenerated }: { onGenerated: (result:
     setStatus("loading");
     setErrorMsg("");
     try {
-      const { data, mediaType } = await fileToBase64(file);
+      // On fait deux choses en parallèle : (1) uploader la photo vers
+      // Vercel Blob pour obtenir une vraie URL publique, réutilisable
+      // comme image du produit et dans la description générée, et
+      // (2) l'encoder en base64 pour que Gemini puisse l'analyser.
+      const [{ data, mediaType }, blob] = await Promise.all([
+        fileToBase64(file),
+        upload(file.name, file, { access: "public", handleUploadUrl: "/api/upload" }),
+      ]);
+
       const res = await fetch("/api/ai/generate-from-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: data, mediaType }),
+        body: JSON.stringify({ imageBase64: data, mediaType, imageUrl: blob.url }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur inconnue");
-      onGenerated({ name: json.name, description: json.description });
+      onGenerated({ name: json.name, description: json.description, imageUrl: blob.url });
       setStatus("idle");
     } catch (err) {
       setErrorMsg((err as Error).message);
@@ -56,7 +65,7 @@ export default function AIImageGenerate({ onGenerated }: { onGenerated: (result:
         {status === "loading" ? "✨ Génération en cours..." : "✨ Générer avec l'IA à partir d'une photo"}
       </button>
       <p style={{ fontSize: "0.8em", color: "#666", margin: "8px 0 0" }}>
-        Envoie une photo du produit : l&apos;IA propose un titre et une description complète (remplace le contenu actuel).
+        Envoie une photo du produit : l&apos;IA propose un titre et une description complète (remplace le contenu actuel), et la photo devient l&apos;image du produit.
       </p>
       {status === "error" && <p style={{ color: "#e63946", fontSize: "0.85em" }}>{errorMsg}</p>}
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useEditor, EditorContent, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -140,6 +140,23 @@ export default function RichTextEditor({ value, onChange }: { value: string; onC
       attributes: { style: "padding: 12px; min-height: 220px; outline: none;" },
     },
   });
+
+  // useEditor() ne prend le contenu initial ("content: value") qu'une
+  // seule fois, à la création de l'éditeur — si `value` change ensuite
+  // depuis l'extérieur (ex : l'IA remplit la description après coup),
+  // Tiptap ne le sait pas et l'éditeur reste visuellement vide/inchangé,
+  // même si editProductForm.description est bien à jour en mémoire. Cet
+  // effet resynchronise l'éditeur dans ce cas précis, sans interférer
+  // avec la frappe normale de l'utilisateur (on ne resynchronise que si
+  // le contenu affiché diverge réellement de `value`).
+  useEffect(() => {
+    if (!editor) return;
+    const current = editor.getHTML();
+    if (value !== current) {
+      editor.commands.setContent(value || "", false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, editor]);
 
   if (!editor) return null;
 
