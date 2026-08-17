@@ -4,12 +4,11 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { parseCSV } from "@/lib/csv";
 import type { Product, Offer } from "@/lib/products";
-import { DEFAULT_TENANT_ID } from "@/lib/products";
-
-// Tenant courant de cet écran admin. Codé en dur pour l'instant car il
-// n'existe qu'un seul marchand réel — une fois l'auth multi-comptes en
-// place, cette valeur viendra du compte connecté au lieu d'être fixe.
-const ADMIN_TENANT_ID = DEFAULT_TENANT_ID;
+import { textToHtml, looksLikeHtml } from "@/lib/richtext";
+import RichTextEditor from "@/components/RichTextEditor";
+import ImageUploadButton from "@/components/ImageUploadButton";
+import AIImageGenerate from "@/components/AIImageGenerate";
+import AdminNav from "@/components/AdminNav";
 
 // Décode une colonne "offres" au format "1:9900;2:14900;3:29900"
 // (quantité:prix, séparés par ";") en tableau d'offres.
@@ -26,35 +25,33 @@ function parseOffers(raw: string): Offer[] | undefined {
 }
 
 export default function ProduitsAdminPage() {
-  const [secret, setSecret] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
+  // Le tenantId réel est toujours réappliqué côté serveur, à partir de la
+  // session connectée (voir requireAdminTenantId() dans lib/tenant.ts) —
+  // impossible de tricher en envoyant un tenantId différent depuis le
+  // navigateur. La valeur ci-dessous n'est qu'un placeholder pour
+  // satisfaire le typage de Product côté client.
   const [preview, setPreview] = useState<Product[]>([]);
   const [existing, setExisting] = useState<Product[]>([]);
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [editErrorMsg, setEditErrorMsg] = useState("");
+  // Mode d'édition de la description : "text" (simple, converti
+  // automatiquement en HTML propre à l'enregistrement) ou "html" (source
+  // brute, comme le bouton </> de Shopify).
+  const [descMode, setDescMode] = useState<"text" | "visual" | "html">("visual");
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("admin_secret");
-    if (saved) {
-      setSecret(saved);
-      setUnlocked(true);
-      fetchExisting();
-    }
+    fetchExisting();
   }, []);
 
   async function fetchExisting() {
-    // On précise le tenant courant pour ne récupérer que son catalogue.
-    const res = await fetch("/api/products", { headers: { "x-tenant-id": ADMIN_TENANT_ID } });
+    // Le cookie de session Auth.js est envoyé automatiquement (même origine) ;
+    // l'API récupère le catalogue du marchand connecté sans header à ajouter.
+    const res = await fetch("/api/products");
     if (res.ok) {
       const data = await res.json();
       setExisting(data.products);
     }
-  }
-
-  function login() {
-    sessionStorage.setItem("admin_secret", secret);
-    setUnlocked(true);
-    fetchExisting();
   }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -101,10 +98,9 @@ export default function ProduitsAdminPage() {
           .slice(1)
           .map((r) => ({
             handle: (r[idx.handle] || "").trim(),
-            // Le tenantId réel est de toute façon réappliqué côté serveur
-            // (voir saveProducts dans lib/products.ts) ; on le renseigne
-            // ici uniquement pour satisfaire le typage côté client.
-            tenantId: ADMIN_TENANT_ID,
+            // Valeur indicative seulement — voir commentaire sur useUser()
+            // en haut du fichier : le serveur réapplique le vrai tenantId.
+            tenantId: "",
             name: (r[idx.name] || "").trim(),
             price: Math.round(parseFloat((r[idx.price] || "0").replace(",", ".").replace(/[^\d.]/g, "")) || 0),
             oldPrice:
@@ -134,7 +130,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: preview }),
       });
       if (!res.ok) throw new Error("failed");
@@ -148,10 +144,7 @@ export default function ProduitsAdminPage() {
 
   async function removeProduct(handle: string) {
     if (!confirm(`Supprimer le produit "${handle}" ?`)) return;
-    const res = await fetch(`/api/products/${handle}`, {
-      method: "DELETE",
-      headers: { "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
-    });
+    const res = await fetch(`/api/products/${handle}`, { method: "DELETE" });
     if (res.ok) setExisting((prev) => prev.filter((p) => p.handle !== handle));
   }
 
@@ -179,11 +172,24 @@ export default function ProduitsAdminPage() {
     if (!confirm(`Supprimer ${selected.size} produit(s) sélectionné(s) ?`)) return;
     setBulkDeleting(true);
     for (const handle of Array.from(selected)) {
-      await fetch(`/api/products/${handle}`, { method: "DELETE", headers: { "x-admin-secret": secret } });
+      await fetch(`/api/products/${handle}`, { method: "DELETE" });
     }
     setExisting((prev) => prev.filter((p) => !selected.has(p.handle)));
     setSelected(new Set());
     setBulkDeleting(false);
+  }
+
+  // Sentinelle utilisée dans editingProductHandle pour distinguer "en train
+  // de créer un nouveau produit" d'un vrai handle existant.
+  const NEW_PRODUCT_SENTINEL = "__new__";
+
+  function startNewProduct() {
+    setEditingProductHandle(NEW_PRODUCT_SENTINEL);
+    setEditProductForm({ handle: "", tenantId: "", name: "", price: 0, oldPrice: 0, image: "", description: "" });
+    setEditingHandle(null);
+    setSaveStatus("idle");
+    setEditErrorMsg("");
+    setDescMode("visual"); // un nouveau produit démarre dans l'éditeur visuel, comme sur Shopify
   }
 
   function startEditProduct(p: Product) {
@@ -191,6 +197,12 @@ export default function ProduitsAdminPage() {
     setEditProductForm({ ...p });
     setEditingHandle(null);
     setSaveStatus("idle");
+    setEditErrorMsg("");
+    // Pré-sélectionne le mode selon le contenu déjà enregistré : du texte
+    // pur (sans aucune balise) s'ouvre en mode "Texte simple" ; tout le
+    // reste (déjà du HTML) s'ouvre dans l'éditeur visuel, qui sait
+    // afficher et modifier du HTML existant normalement.
+    setDescMode(looksLikeHtml(p.description) ? "visual" : "text");
   }
 
   function updateEditField(field: keyof Product, value: string) {
@@ -199,15 +211,45 @@ export default function ProduitsAdminPage() {
 
   async function saveEditProduct() {
     if (!editProductForm) return;
+    const isNew = editingProductHandle === NEW_PRODUCT_SENTINEL;
+    setEditErrorMsg("");
+
+    if (isNew) {
+      const handle = editProductForm.handle.trim();
+      if (!handle) {
+        setEditErrorMsg("Le handle (identifiant dans l'URL) est obligatoire.");
+        return;
+      }
+      if (!/^[a-z0-9-]+$/.test(handle)) {
+        setEditErrorMsg("Le handle ne doit contenir que des lettres minuscules, chiffres et tirets (ex: massage-stick).");
+        return;
+      }
+      if (existing.some((x) => x.handle === handle)) {
+        setEditErrorMsg("Un produit avec ce handle existe déjà.");
+        return;
+      }
+    }
+
     setSaveStatus("loading");
     try {
+      // En mode "Texte simple", on convertit en HTML propre juste avant
+      // l'enregistrement (paragraphes + sauts de ligne), car la page
+      // produit publique affiche toujours product.description comme du
+      // HTML (voir app/produit/[handle]/page.tsx).
+      const finalDescription = descMode === "text" ? textToHtml(editProductForm.description) : editProductForm.description;
+      const toSave: Product = { ...editProductForm, handle: editProductForm.handle.trim(), description: finalDescription };
+
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
-        body: JSON.stringify({ products: [editProductForm] }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ products: [toSave] }),
       });
       if (!res.ok) throw new Error("failed");
-      setExisting((prev) => prev.map((x) => (x.handle === editProductForm.handle ? editProductForm : x)));
+      if (isNew) {
+        setExisting((prev) => [...prev, toSave]);
+      } else {
+        setExisting((prev) => prev.map((x) => (x.handle === toSave.handle ? toSave : x)));
+      }
       setEditingProductHandle(null);
     } catch {
       setSaveStatus("error");
@@ -240,7 +282,7 @@ export default function ProduitsAdminPage() {
     try {
       const res = await fetch("/api/products/import", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ products: [updated] }),
       });
       if (!res.ok) throw new Error("failed");
@@ -251,24 +293,9 @@ export default function ProduitsAdminPage() {
     }
   }
 
-  if (!unlocked) {
-    return (
-      <div style={{ maxWidth: 360, margin: "80px auto", fontFamily: "Arial" }}>
-        <h2>Accès admin</h2>
-        <input
-          type="password"
-          placeholder="Code secret"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          style={{ width: "100%", padding: 10, marginBottom: 10 }}
-        />
-        <button onClick={login} style={{ width: "100%", padding: 10 }}>Entrer</button>
-      </div>
-    );
-  }
-
   return (
     <div style={{ maxWidth: 800, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
+      <AdminNav />
       <h1>📦 Catalogue produits</h1>
       <p style={{ color: "#666" }}>
         Importe un fichier CSV avec les colonnes : <code>handle, nom, prix, prix_barre, image, description</code>
@@ -313,7 +340,156 @@ export default function ProduitsAdminPage() {
         </div>
       )}
 
-      <h2>Produits déjà en ligne ({existing.length})</h2>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <h2 style={{ margin: 0 }}>Produits déjà en ligne ({existing.length})</h2>
+        {editingProductHandle !== NEW_PRODUCT_SENTINEL && (
+          <button
+            onClick={startNewProduct}
+            style={{ background: "#6b3fa0", color: "#fff", border: "none", padding: "10px 18px", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}
+          >
+            + Créer une page produit
+          </button>
+        )}
+      </div>
+
+      {/* --- Formulaire de création d'un nouveau produit --- */}
+      {editingProductHandle === NEW_PRODUCT_SENTINEL && editProductForm && (
+        <div style={{ border: "1px solid #6b3fa0", borderRadius: 12, padding: 16, marginBottom: 24 }}>
+          <h3 style={{ marginTop: 0 }}>Nouveau produit</h3>
+
+          <AIImageGenerate
+            onGenerated={({ name, description, imageUrl }) => {
+              setEditProductForm((prev) => (prev ? { ...prev, name, description, image: imageUrl } : prev));
+              setDescMode("visual");
+            }}
+          />
+
+          <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Handle (identifiant dans l&apos;URL, ex: massage-stick)</p>
+          <input
+            value={editProductForm.handle}
+            onChange={(e) => updateEditField("handle", e.target.value.toLowerCase())}
+            placeholder="massage-stick"
+            style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+          />
+
+          <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Titre</p>
+          <input
+            value={editProductForm.name}
+            onChange={(e) => updateEditField("name", e.target.value)}
+            style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+          />
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Prix (FCFA)</p>
+              <input
+                type="number"
+                value={editProductForm.price || ""}
+                onChange={(e) => updateEditField("price", e.target.value)}
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Prix barré (FCFA)</p>
+              <input
+                type="number"
+                value={editProductForm.oldPrice || ""}
+                onChange={(e) => updateEditField("oldPrice", e.target.value)}
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
+              />
+            </div>
+          </div>
+
+          <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Image (nom de fichier, URL complète, ou importe depuis ton téléphone)</p>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <input
+              value={editProductForm.image}
+              onChange={(e) => updateEditField("image", e.target.value)}
+              style={{ flex: 1, padding: 8, border: "1px solid #ddd", borderRadius: 6, boxSizing: "border-box" }}
+            />
+            <ImageUploadButton label="📤 Importer" onUploaded={(url) => updateEditField("image", url)} />
+          </div>
+          {editProductForm.image && (
+            <img
+              src={editProductForm.image.startsWith("http") ? editProductForm.image : `/images/${editProductForm.image}`}
+              alt="Aperçu"
+              style={{ maxWidth: 140, maxHeight: 140, borderRadius: 8, marginBottom: 10, objectFit: "cover" }}
+            />
+          )}
+
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+            <p style={{ fontSize: "0.85em", color: "#666", margin: 0 }}>
+              {descMode === "text" && "Description — texte simple, sans balises. Les sauts de ligne sont conservés automatiquement."}
+              {descMode === "visual" && "Description — éditeur visuel (mise en forme, couleurs, tableaux...)."}
+              {descMode === "html" && "Description — colle ici le HTML de ta page produit (ex: la section Hero)."}
+            </p>
+            <div style={{ display: "flex", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden" }}>
+              <button
+                type="button"
+                onClick={() => setDescMode("text")}
+                style={{ padding: "4px 10px", fontSize: "0.8em", border: "none", cursor: "pointer", background: descMode === "text" ? "#6b3fa0" : "#fff", color: descMode === "text" ? "#fff" : "#333" }}
+              >
+                📝 Texte simple
+              </button>
+              <button
+                type="button"
+                onClick={() => setDescMode("visual")}
+                style={{ padding: "4px 10px", fontSize: "0.8em", border: "none", cursor: "pointer", background: descMode === "visual" ? "#6b3fa0" : "#fff", color: descMode === "visual" ? "#fff" : "#333" }}
+              >
+                🎨 Éditeur visuel
+              </button>
+              <button
+                type="button"
+                onClick={() => setDescMode("html")}
+                style={{ padding: "4px 10px", fontSize: "0.8em", border: "none", cursor: "pointer", background: descMode === "html" ? "#6b3fa0" : "#fff", color: descMode === "html" ? "#fff" : "#333" }}
+              >
+                {"</> HTML"}
+              </button>
+            </div>
+          </div>
+
+          {descMode === "visual" ? (
+            <RichTextEditor value={editProductForm.description} onChange={(html) => updateEditField("description", html)} />
+          ) : (
+            <>
+              <textarea
+                value={editProductForm.description}
+                onChange={(e) => updateEditField("description", e.target.value)}
+                rows={6}
+                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 8, boxSizing: "border-box", fontFamily: descMode === "html" ? "monospace" : "Arial", fontSize: descMode === "html" ? "0.85em" : "1em" }}
+              />
+              <p style={{ fontSize: "0.8em", color: "#999", marginBottom: 4 }}>Aperçu :</p>
+              <iframe
+                title="Aperçu de la description"
+                srcDoc={
+                  (descMode === "text" ? textToHtml(editProductForm.description) : editProductForm.description) ||
+                  "<p style='color:#999;font-family:Arial'>Rien à prévisualiser pour l'instant.</p>"
+                }
+                sandbox=""
+                style={{ width: "100%", height: 280, border: "1px solid #ddd", borderRadius: 8, marginBottom: 12 }}
+              />
+            </>
+          )}
+
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <button
+              onClick={saveEditProduct}
+              disabled={saveStatus === "loading"}
+              style={{ background: "#2a9d8f", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 8, fontWeight: "bold", cursor: "pointer" }}
+            >
+              {saveStatus === "loading" ? "Création..." : "✅ Créer le produit"}
+            </button>
+            <button
+              onClick={() => setEditingProductHandle(null)}
+              style={{ background: "none", border: "1px solid #ccc", padding: "10px 16px", borderRadius: 8, cursor: "pointer" }}
+            >
+              Annuler
+            </button>
+          </div>
+          {editErrorMsg && <p style={{ color: "#e63946" }}>{editErrorMsg}</p>}
+          {saveStatus === "error" && !editErrorMsg && <p style={{ color: "#e63946" }}>Erreur lors de la création.</p>}
+        </div>
+      )}
 
       {selected.size > 0 && (
         <div style={{ background: "#fff3f3", border: "1px solid #e63946", borderRadius: 8, padding: "10px 14px", marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -374,7 +550,13 @@ export default function ProduitsAdminPage() {
 
           {editingProductHandle === p.handle && editProductForm && (
             <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #eee" }}>
-              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Nom</p>
+              <AIImageGenerate
+                onGenerated={({ name, description, imageUrl }) => {
+                  setEditProductForm((prev) => (prev ? { ...prev, name, description, image: imageUrl } : prev));
+                  setDescMode("visual");
+                }}
+              />
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Titre</p>
               <input
                 value={editProductForm.name}
                 onChange={(e) => updateEditField("name", e.target.value)}
@@ -400,19 +582,75 @@ export default function ProduitsAdminPage() {
                   />
                 </div>
               </div>
-              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Image (nom de fichier ou URL complète)</p>
-              <input
-                value={editProductForm.image}
-                onChange={(e) => updateEditField("image", e.target.value)}
-                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 10, boxSizing: "border-box" }}
-              />
-              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Description</p>
-              <textarea
-                value={editProductForm.description}
-                onChange={(e) => updateEditField("description", e.target.value)}
-                rows={4}
-                style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 12, boxSizing: "border-box" }}
-              />
+              <p style={{ fontSize: "0.85em", color: "#666", marginBottom: 4 }}>Image (nom de fichier, URL complète, ou importe depuis ton téléphone)</p>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                <input
+                  value={editProductForm.image}
+                  onChange={(e) => updateEditField("image", e.target.value)}
+                  style={{ flex: 1, padding: 8, border: "1px solid #ddd", borderRadius: 6, boxSizing: "border-box" }}
+                />
+                <ImageUploadButton label="📤 Importer" onUploaded={(url) => updateEditField("image", url)} />
+              </div>
+              {editProductForm.image && (
+                <img
+                  src={editProductForm.image.startsWith("http") ? editProductForm.image : `/images/${editProductForm.image}`}
+                  alt="Aperçu"
+                  style={{ maxWidth: 140, maxHeight: 140, borderRadius: 8, marginBottom: 10, objectFit: "cover" }}
+                />
+              )}
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+                <p style={{ fontSize: "0.85em", color: "#666", margin: 0 }}>
+                  {descMode === "text" && "Description — texte simple, sans balises."}
+                  {descMode === "visual" && "Description — éditeur visuel (mise en forme, couleurs, tableaux...)."}
+                  {descMode === "html" && "Description — HTML (aperçu en direct ci-dessous)."}
+                </p>
+                <div style={{ display: "flex", border: "1px solid #ddd", borderRadius: 6, overflow: "hidden" }}>
+                  <button
+                    type="button"
+                    onClick={() => setDescMode("text")}
+                    style={{ padding: "4px 10px", fontSize: "0.8em", border: "none", cursor: "pointer", background: descMode === "text" ? "#6b3fa0" : "#fff", color: descMode === "text" ? "#fff" : "#333" }}
+                  >
+                    📝 Texte simple
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDescMode("visual")}
+                    style={{ padding: "4px 10px", fontSize: "0.8em", border: "none", cursor: "pointer", background: descMode === "visual" ? "#6b3fa0" : "#fff", color: descMode === "visual" ? "#fff" : "#333" }}
+                  >
+                    🎨 Éditeur visuel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDescMode("html")}
+                    style={{ padding: "4px 10px", fontSize: "0.8em", border: "none", cursor: "pointer", background: descMode === "html" ? "#6b3fa0" : "#fff", color: descMode === "html" ? "#fff" : "#333" }}
+                  >
+                    {"</> HTML"}
+                  </button>
+                </div>
+              </div>
+
+              {descMode === "visual" ? (
+                <RichTextEditor value={editProductForm.description} onChange={(html) => updateEditField("description", html)} />
+              ) : (
+                <>
+                  <textarea
+                    value={editProductForm.description}
+                    onChange={(e) => updateEditField("description", e.target.value)}
+                    rows={6}
+                    style={{ width: "100%", padding: 8, border: "1px solid #ddd", borderRadius: 6, marginBottom: 8, boxSizing: "border-box", fontFamily: descMode === "html" ? "monospace" : "Arial", fontSize: descMode === "html" ? "0.85em" : "1em" }}
+                  />
+                  <p style={{ fontSize: "0.8em", color: "#999", marginBottom: 4 }}>Aperçu :</p>
+                  <iframe
+                    title="Aperçu de la description"
+                    srcDoc={
+                      (descMode === "text" ? textToHtml(editProductForm.description) : editProductForm.description) ||
+                      "<p style='color:#999;font-family:Arial'>Rien à prévisualiser pour l'instant.</p>"
+                    }
+                    sandbox=""
+                    style={{ width: "100%", height: 280, border: "1px solid #ddd", borderRadius: 8, marginBottom: 12 }}
+                  />
+                </>
+              )}
               <button
                 onClick={saveEditProduct}
                 disabled={saveStatus === "loading"}

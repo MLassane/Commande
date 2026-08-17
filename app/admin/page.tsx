@@ -1,182 +1,168 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import type { Order } from "@/lib/kv";
-import { DEFAULT_TENANT_ID } from "@/lib/products";
+import AdminNav from "@/components/AdminNav";
 
-// Tenant courant de ce dashboard. Codé en dur en attendant la vraie
-// authentification multi-comptes (voir même remarque dans admin/produits).
-const ADMIN_TENANT_ID = DEFAULT_TENANT_ID;
+type Period = "today" | "7days" | "30days";
 
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
+const PERIOD_LABELS: Record<Period, string> = {
+  today: "Aujourd'hui",
+  "7days": "7 derniers jours",
+  "30days": "30 derniers jours",
+};
 
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  return Uint8Array.from(rawData.split("").map((c) => c.charCodeAt(0)));
-}
-
-export default function AdminPage() {
-  const [secret, setSecret] = useState("");
-  const [unlocked, setUnlocked] = useState(false);
+// Page d'accueil de l'admin — vue d'ensemble façon Shopify (ventes,
+// commandes, graphique, ce qu'il reste à traiter). La liste détaillée des
+// commandes avec filtres/statuts reste sur /admin/commandes (rien n'a été
+// supprimé, juste réorganisé).
+export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [notifStatus, setNotifStatus] = useState<"idle" | "on" | "error">("idle");
+  const [loading, setLoading] = useState(true);
+  const [period, setPeriod] = useState<Period>("today");
+  const [visits, setVisits] = useState<number | null>(null);
+  const [visitsLoading, setVisitsLoading] = useState(true);
 
   useEffect(() => {
-    const saved = sessionStorage.getItem("admin_secret");
-    if (saved) {
-      setSecret(saved);
-      setUnlocked(true);
-      fetchOrders(saved);
-    }
+    fetch("/api/orders")
+      .then((res) => (res.ok ? res.json() : { orders: [] }))
+      .then((data) => setOrders(data.orders || []))
+      .finally(() => setLoading(false));
   }, []);
 
-  async function fetchOrders(s: string) {
-    // On précise le tenant courant pour ne récupérer que ses commandes.
-    const res = await fetch("/api/orders", { headers: { "x-admin-secret": s, "x-tenant-id": ADMIN_TENANT_ID } });
-    if (res.ok) {
-      const data = await res.json();
-      setOrders(data.orders);
-    }
-  }
+  // On recharge le nombre de visites à chaque changement de période
+  // (Aujourd'hui / 7 jours / 30 jours) — voir /api/stats/visits.
+  useEffect(() => {
+    setVisitsLoading(true);
+    fetch(`/api/stats/visits?period=${period}`)
+      .then((res) => (res.ok ? res.json() : { visits: 0 }))
+      .then((data) => setVisits(data.visits ?? 0))
+      .finally(() => setVisitsLoading(false));
+  }, [period]);
 
-  async function removeOrder(id: string) {
-    if (!confirm("Supprimer cette commande ?")) return;
-    const res = await fetch(`/api/orders/${id}`, {
-      method: "DELETE",
-      headers: { "x-admin-secret": secret, "x-tenant-id": ADMIN_TENANT_ID },
+  // Commandes qui tombent dans la période choisie (Aujourd'hui / 7j / 30j).
+  const periodOrders = useMemo(() => {
+    const now = Date.now();
+    return orders.filter((o) => {
+      const diffDays = (now - new Date(o.createdAt).getTime()) / 86400000;
+      if (period === "today") return diffDays <= 1;
+      if (period === "7days") return diffDays <= 7;
+      return diffDays <= 30;
     });
-    if (res.ok) {
-      setOrders((prev) => prev.filter((o) => o.id !== id));
-    } else {
-      alert("Erreur lors de la suppression.");
-    }
-  }
+  }, [orders, period]);
 
-  function exportCSV() {
-    if (orders.length === 0) {
-      alert("Aucune commande à exporter.");
-      return;
-    }
-    const headers = ["N° Commande", "Nom", "Téléphone", "Adresse", "Produit", "Prix (FCFA)", "Jour de livraison", "Heure de livraison", "Date de commande"];
-    const rows = orders.map((o) => [
-      o.orderNumber || "—",
-      o.name,
-      o.phone,
-      o.address,
-      o.product,
-      o.price.toString(),
-      o.day,
-      o.time,
-      new Date(o.createdAt).toLocaleString("fr-FR"),
-    ]);
+  const stats = useMemo(() => {
+    const commandes = periodOrders.length;
+    const ventes = periodOrders
+      .filter((o) => o.status !== "annulee")
+      .reduce((sum, o) => sum + o.price * (o.qty || 1), 0);
+    // "À traiter" = en attente, toutes périodes confondues (comme le
+    // compteur "Commandes à traiter" de Shopify, qui ignore la période).
+    const aTraiter = orders.filter((o) => o.status === "en_attente").length;
+    return { commandes, ventes, aTraiter };
+  }, [periodOrders, orders]);
 
-    const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
-    const csv = [headers, ...rows].map((row) => row.map(escape).join(";")).join("\n");
-
-    // Le "\uFEFF" au début permet à Excel d'afficher correctement les accents
-    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `commandes-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function login() {
-    sessionStorage.setItem("admin_secret", secret);
-    setUnlocked(true);
-    fetchOrders(secret);
-  }
-
-  async function enableNotifications() {
-    try {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        alert("Ton navigateur ne supporte pas les notifications push.");
-        return;
+  // Données du graphique : par heure si "Aujourd'hui", sinon par jour.
+  const chartData = useMemo(() => {
+    if (period === "today") {
+      const buckets = Array.from({ length: 24 }, (_, h) => ({ label: `${h}h`, commandes: 0 }));
+      for (const o of periodOrders) {
+        const h = new Date(o.createdAt).getHours();
+        buckets[h].commandes++;
       }
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        alert("Tu dois autoriser les notifications pour continuer.");
-        return;
-      }
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-      });
-      await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(sub),
-      });
-      setNotifStatus("on");
-    } catch (e) {
-      console.error(e);
-      setNotifStatus("error");
+      return buckets;
     }
-  }
-
-  if (!unlocked) {
-    return (
-      <div style={{ maxWidth: 360, margin: "80px auto", fontFamily: "Arial" }}>
-        <h2>Accès admin</h2>
-        <input
-          type="password"
-          placeholder="Code secret"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          style={{ width: "100%", padding: 10, marginBottom: 10 }}
-        />
-        <button onClick={login} style={{ width: "100%", padding: 10 }}>Entrer</button>
-      </div>
-    );
-  }
+    const days = period === "7days" ? 7 : 30;
+    const buckets = Array.from({ length: days }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (days - 1 - i));
+      return { label: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit" }), key: d.toDateString(), commandes: 0 };
+    });
+    for (const o of periodOrders) {
+      const key = new Date(o.createdAt).toDateString();
+      const bucket = buckets.find((b) => b.key === key);
+      if (bucket) bucket.commandes++;
+    }
+    return buckets;
+  }, [periodOrders, period]);
 
   return (
-    <div style={{ maxWidth: 700, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
-      <h1>📋 Commandes reçues</h1>
+    <div style={{ maxWidth: 760, margin: "40px auto", fontFamily: "Arial", padding: "0 16px" }}>
+      <AdminNav />
+      <h1 style={{ marginBottom: 20 }}>📊 Aperçu de la boutique</h1>
 
-      <button
-        onClick={enableNotifications}
-        style={{ background: "#f4841c", color: "#fff", border: "none", padding: "12px 20px", borderRadius: 8, fontWeight: "bold", marginBottom: 10, marginRight: 10, cursor: "pointer" }}
-      >
-        🔔 Activer les notifications sur cet appareil
-      </button>
-
-      <button
-        onClick={exportCSV}
-        style={{ background: "#2a9d8f", color: "#fff", border: "none", padding: "12px 20px", borderRadius: 8, fontWeight: "bold", marginBottom: 20, cursor: "pointer" }}
-      >
-        📥 Exporter en CSV
-      </button>
-      {notifStatus === "on" && <p style={{ color: "#2a9d8f" }}>Notifications activées ✅</p>}
-      {notifStatus === "error" && <p style={{ color: "#e63946" }}>Erreur lors de l&apos;activation.</p>}
-
-      {orders.length === 0 && <p>Aucune commande pour l&apos;instant.</p>}
-
-      {orders.map((o) => (
-        <div key={o.id} style={{ border: "1px solid #eee", borderRadius: 10, padding: 16, marginBottom: 12 }}>
-          <div style={{ fontWeight: "bold" }}>
-            {o.orderNumber && <span style={{ color: "#6b3fa0" }}>{o.orderNumber} — </span>}
-            {o.name} — {o.phone}
-          </div>
-          <div>{o.product} · {o.price.toLocaleString("fr-FR")} FCFA</div>
-          <div>{o.address}</div>
-          <div>📅 {o.day} · 🕐 {o.time}</div>
-          <div style={{ color: "#999", fontSize: "0.85em" }}>{new Date(o.createdAt).toLocaleString("fr-FR")}</div>
-          <a href={`tel:${o.phone}`} style={{ marginRight: 12 }}>📞 Appeler</a>
-          <a href={`https://wa.me/${o.phone.replace(/[^0-9]/g, "")}`} target="_blank" rel="noreferrer" style={{ marginRight: 12 }}>💬 WhatsApp</a>
+      {/* --- Sélecteur de période --- */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
           <button
-            onClick={() => removeOrder(o.id)}
-            style={{ background: "none", border: "none", color: "#e63946", cursor: "pointer", padding: 0, fontSize: "1em" }}
+            key={p}
+            onClick={() => setPeriod(p)}
+            style={{
+              background: period === p ? "#6b3fa0" : "#f0f0f0",
+              color: period === p ? "#fff" : "#333",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 14px",
+              cursor: "pointer",
+              fontWeight: period === p ? "bold" : "normal",
+            }}
           >
-            🗑️ Supprimer
+            {PERIOD_LABELS[p]}
           </button>
-        </div>
-      ))}
+        ))}
+      </div>
+
+      {loading ? (
+        <p>Chargement...</p>
+      ) : (
+        <>
+          {/* --- Stats principales (façon Shopify : Visites / Ventes / Commandes) --- */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 24 }}>
+            <div style={{ background: "#f7f7f7", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: "0.85em", color: "#666" }}>Visites</div>
+              <div style={{ fontSize: "1.6em", fontWeight: "bold" }}>{visitsLoading ? "…" : visits}</div>
+            </div>
+            <div style={{ background: "#f7f7f7", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: "0.85em", color: "#666" }}>Ventes totales</div>
+              <div style={{ fontSize: "1.6em", fontWeight: "bold" }}>{stats.ventes.toLocaleString("fr-FR")} FCFA</div>
+            </div>
+            <div style={{ background: "#f7f7f7", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: "0.85em", color: "#666" }}>Commandes</div>
+              <div style={{ fontSize: "1.6em", fontWeight: "bold" }}>{stats.commandes}</div>
+            </div>
+          </div>
+
+          {/* --- Graphique commandes dans le temps --- */}
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 12, padding: "16px 8px 8px", marginBottom: 24 }}>
+            <div style={{ padding: "0 8px", marginBottom: 8, fontWeight: "bold" }}>Commandes</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCommandes" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#6b3fa0" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="#6b3fa0" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} width={28} />
+                <Tooltip formatter={(value: number) => [value, "Commandes"]} />
+                <Area type="monotone" dataKey="commandes" stroke="#6b3fa0" strokeWidth={2} fill="url(#colorCommandes)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* --- Tuile "à traiter", comme sur Shopify --- */}
+          <Link
+            href="/admin/commandes"
+            style={{ textDecoration: "none", color: "inherit", display: "block", background: "#f7f7f7", borderRadius: 12, padding: 16, marginBottom: 12 }}
+          >
+            <div style={{ fontSize: "1.6em", fontWeight: "bold" }}>{stats.aTraiter}</div>
+            <div style={{ color: "#666" }}>Commandes à traiter →</div>
+          </Link>
+        </>
+      )}
     </div>
   );
 }

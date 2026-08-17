@@ -1,6 +1,11 @@
 import { redis } from "@/lib/redis";
 import { DEFAULT_TENANT_ID } from "@/lib/products";
 
+// Cycle de vie d'une commande : en attente (par défaut à la création) ->
+// confirmée (le marchand a validé/appelé le client) -> livrée. "annulée"
+// couvre les commandes refusées ou injoignables.
+export type OrderStatus = "en_attente" | "confirmee" | "livree" | "annulee";
+
 export type Order = {
   id: string;
   orderNumber?: string;
@@ -16,6 +21,7 @@ export type Order = {
   day: string;
   time: string;
   createdAt: string;
+  status: OrderStatus;
 };
 
 // Clés Redis scopées par marchand : le compteur de numéro de commande et
@@ -42,10 +48,27 @@ export async function saveOrder(order: Order) {
   await redis.hset(ordersKey(order.tenantId), { [order.id]: JSON.stringify(order) });
 }
 
+// Met à jour uniquement le statut d'une commande existante (utilisé par
+// l'admin pour marquer "confirmée", "livrée", etc. sans repasser toutes
+// les autres infos de la commande).
+export async function updateOrderStatus(id: string, status: OrderStatus, tenantId: string = DEFAULT_TENANT_ID) {
+  const raw = await redis.hget<string>(ordersKey(tenantId), id);
+  if (!raw) return null;
+  const order: Order = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const updated: Order = { ...order, status };
+  await redis.hset(ordersKey(tenantId), { [id]: JSON.stringify(updated) });
+  return updated;
+}
+
 export async function listOrders(tenantId: string = DEFAULT_TENANT_ID): Promise<Order[]> {
   const raw = await redis.hgetall<Record<string, string>>(ordersKey(tenantId));
   if (!raw) return [];
-  const orders = Object.values(raw).map((r) => (typeof r === "string" ? JSON.parse(r) : r));
+  const orders = Object.values(raw).map((r) => {
+    const o = typeof r === "string" ? JSON.parse(r) : r;
+    // Compatibilité avec les commandes créées avant l'ajout du statut :
+    // on les considère "en attente" par défaut.
+    return { ...o, status: o.status || "en_attente" } as Order;
+  });
   return orders.sort((a: Order, b: Order) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 

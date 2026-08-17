@@ -2,21 +2,20 @@ import { NextRequest } from "next/server";
 import { DEFAULT_TENANT_ID } from "@/lib/products";
 
 // ---------------------------------------------------------------------
-// SOLUTION TEMPORAIRE — à remplacer quand la vraie authentification
-// multi-comptes (Clerk ou Auth.js) sera branchée.
+// TENANT PUBLIC (catalogue en lecture seule, création de commande)
 //
-// Pour l'instant, il n'y a qu'un seul "vrai" marchand (toi), donc le
-// tenantId est simplement lu dans un header "x-tenant-id" envoyé par
-// l'admin (voir app/admin/produits/page.tsx), avec un repli sur le
-// tenant par défaut si le header est absent. Ça permet au code d'être
-// déjà écrit "multi-tenant" partout, sans bloquer sur l'auth tout de
-// suite.
+// Ces routes ne demandent pas de connexion (un client qui commande n'a
+// pas de compte). Tant qu'il n'existe qu'un seul vrai marchand, on
+// retombe sur le tenant par défaut.
 //
-// Plus tard, cette fonction sera remplacée par la lecture du tenantId
-// dans la session de l'utilisateur connecté (ex: `auth().userId` avec
-// Clerk), et non plus dans un header envoyé par le client.
+// IMPORTANT : ce fichier est importé par middleware.ts (Edge Runtime) —
+// il ne doit donc importer AUCUNE dépendance lourde (bcrypt, next-auth
+// avec provider Credentials, etc.), sous peine de faire planter le
+// middleware au déploiement. La fonction requireAdminTenantId(), qui a
+// besoin de session Auth.js + bcrypt, vit volontairement dans un fichier
+// séparé : lib/admin-tenant.ts, jamais importé par le middleware.
 // ---------------------------------------------------------------------
-export function resolveTenantId(req: NextRequest): string {
+export function resolvePublicTenantId(req: NextRequest): string {
   const fromHeader = req.headers.get("x-tenant-id");
   return fromHeader && fromHeader.trim() ? fromHeader.trim() : DEFAULT_TENANT_ID;
 }
