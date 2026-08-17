@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminTenantId } from "@/lib/admin-tenant";
 import { callGroqText, stripCodeFences, BRAND_GUIDELINES } from "@/lib/ai";
 
+// Voir commentaire dans generate-from-image/route.ts.
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   try {
     await requireAdminTenantId();

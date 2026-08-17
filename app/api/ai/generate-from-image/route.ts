@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminTenantId } from "@/lib/admin-tenant";
 import { callGeminiVision, stripCodeFences, BRAND_GUIDELINES } from "@/lib/ai";
 
+// Par défaut, Vercel coupe une route API après 10s (plan gratuit) — la
+// génération IA (surtout avec nouvelle tentative en cas de surcharge)
+// peut prendre plus longtemps. On autorise jusqu'à 60s ici.
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   try {
     await requireAdminTenantId();

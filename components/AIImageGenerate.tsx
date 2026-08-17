@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
+import { withTimeout } from "@/lib/client-timeout";
 
 function fileToBase64(file: File): Promise<{ data: string; mediaType: string }> {
   return new Promise((resolve, reject) => {
@@ -31,16 +32,26 @@ export default function AIImageGenerate({ onGenerated }: { onGenerated: (result:
       // Vercel Blob pour obtenir une vraie URL publique, réutilisable
       // comme image du produit et dans la description générée, et
       // (2) l'encoder en base64 pour que Gemini puisse l'analyser.
+      // Chaque étape a un délai maximum, pour ne jamais rester bloqué
+      // sans retour si l'upload ou l'IA ne répond pas.
       const [{ data, mediaType }, blob] = await Promise.all([
         fileToBase64(file),
-        upload(file.name, file, { access: "public", handleUploadUrl: "/api/upload" }),
+        withTimeout(
+          upload(file.name, file, { access: "public", handleUploadUrl: "/api/upload" }),
+          30_000,
+          "L'envoi de la photo prend trop de temps (vérifie que le stockage Vercel Blob est bien configuré)."
+        ),
       ]);
 
-      const res = await fetch("/api/ai/generate-from-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: data, mediaType, imageUrl: blob.url }),
-      });
+      const res = await withTimeout(
+        fetch("/api/ai/generate-from-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: data, mediaType, imageUrl: blob.url }),
+        }),
+        45_000,
+        "La génération IA prend trop de temps — réessaie dans quelques instants."
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur inconnue");
       onGenerated({ name: json.name, description: json.description, imageUrl: blob.url });

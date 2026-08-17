@@ -15,6 +15,7 @@ import TableRow from "@tiptap/extension-table-row";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
 import ImageUploadButton from "@/components/ImageUploadButton";
+import { withTimeout } from "@/lib/client-timeout";
 
 // Palette reprise de Shopify : 7 couleurs vives + 6 niveaux de gris/blanc,
 // utilisée à la fois pour la couleur du texte et celle du fond.
@@ -192,11 +193,15 @@ export default function RichTextEditor({ value, onChange }: { value: string; onC
     setAiStatus("loading");
     setAiError("");
     try {
-      const res = await fetch("/api/ai/generate-section", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instruction: aiInstruction, contextHtml: editor.getHTML() }),
-      });
+      const res = await withTimeout(
+        fetch("/api/ai/generate-section", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ instruction: aiInstruction, contextHtml: editor.getHTML() }),
+        }),
+        45_000,
+        "La génération IA prend trop de temps — réessaie dans quelques instants."
+      );
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Erreur inconnue");
       // Insère le fragment généré à l'endroit où était le curseur.

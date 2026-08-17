@@ -28,18 +28,41 @@ livraison, prix en FCFA). Règles à respecter strictement :
 // résolvent presque toujours d'elles-mêmes après une courte pause. On ne
 // retente PAS les autres erreurs (ex: 400/401/404), qui ne changeront pas
 // en réessayant.
+//
+// Chaque tentative est aussi bornée dans le temps (AbortController) : si
+// le fournisseur ne répond jamais (au lieu de répondre par une vraie
+// erreur), on abandonne après TIMEOUT_MS plutôt que de rester bloqué
+// indéfiniment — c'est ce qui causait des générations "qui tournent"
+// sans jamais aboutir ni afficher d'erreur.
+const TIMEOUT_MS = 25_000; // 25s par tentative
+
 async function fetchWithRetry(url: string, init: RequestInit, maxAttempts = 3): Promise<Response> {
   let lastRes: Response | null = null;
+  let lastErr: Error | null = null;
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetch(url, init);
-    if (res.ok || (res.status !== 503 && res.status !== 429)) return res;
-    lastRes = res;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      if (res.ok || (res.status !== 503 && res.status !== 429)) return res;
+      lastRes = res;
+    } catch (err) {
+      clearTimeout(timer);
+      // AbortError = on a dépassé TIMEOUT_MS sans réponse : on traite ça
+      // comme une erreur temporaire, au même titre qu'un 503, et on
+      // retente si des tentatives restent.
+      lastErr = err as Error;
+    }
     if (attempt < maxAttempts) {
       const delayMs = 800 * attempt; // 800ms, puis 1600ms
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
-  return lastRes as Response;
+
+  if (lastRes) return lastRes;
+  throw new Error(lastErr?.name === "AbortError" ? "Le service met trop de temps à répondre (délai dépassé)." : lastErr?.message || "Erreur réseau inconnue.");
 }
 
 // --- Gemini (analyse d'image) ---
